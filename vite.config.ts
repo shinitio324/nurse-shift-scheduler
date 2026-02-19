@@ -4,22 +4,16 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json']
-  },
-  optimizeDeps: {
-    exclude: ['lucide-react'],
+    extensions: ['.tsx', '.ts', '.jsx', '.js']
   },
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'terser',
-    chunkSizeWarningLimit: 1000,
-    commonjsOptions: {
-      transformMixedEsModules: true
-    }
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 1000
   },
   server: {
     port: 3000,
-    host: true,
-  },
+    host: true
+  }
 })
