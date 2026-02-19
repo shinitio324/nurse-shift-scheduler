@@ -1,14 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json']
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
@@ -18,11 +14,9 @@ export default defineConfig({
     sourcemap: false,
     minify: 'terser',
     chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: undefined,
-      },
-    },
+    commonjsOptions: {
+      transformMixedEsModules: true
+    }
   },
   server: {
     port: 3000,
