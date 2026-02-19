@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
 
-function App() {
+export default function App() {
   const [activeTab, setActiveTab] = useState('calendar');
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
