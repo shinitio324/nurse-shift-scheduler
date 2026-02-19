@@ -15,15 +15,9 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-dnd": "^16.0.1",
-    "react-dnd-html5-backend": "^16.0.1",
-    "date-fns": "^3.0.0",
-    "dexie": "^3.2.4",
-    "dexie-react-hooks": "^1.1.7",
-    "jspdf": "^2.5.1",
-    "xlsx": "^0.18.5",
     "lucide-react": "^0.344.0",
-    "recharts": "^2.10.3"
+    "dexie": "^3.2.4",
+    "dexie-react-hooks": "^1.1.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",
