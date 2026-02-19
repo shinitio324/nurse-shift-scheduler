@@ -15,7 +15,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">看護師勤務表システム</h1>
+              <h1 className="text-2xl font-bold text-gray-900">🚀 看護師勤務表システム v2.0</h1>
               <p className="text-sm text-gray-500 mt-1">オンライン版 v1.0.0</p>
             </div>
             <div className="flex gap-3">
