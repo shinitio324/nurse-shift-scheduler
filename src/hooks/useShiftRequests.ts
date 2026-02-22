@@ -54,14 +54,15 @@ export function useShiftRequests() {
    */
   const addShiftRequest = async (data: ShiftRequestFormData): Promise<boolean> => {
     try {
-      // 重複チェック
+      // 重複チェック（修正版）
       const existing = await db.shifts
-        .where('[staffId+date]')
-        .equals([data.staffId, data.date])
+        .where('staffId')
+        .equals(data.staffId)
+        .and(shift => shift.date === data.date)
         .first();
       
       if (existing) {
-        alert('このスタッフは既にこの日のシフトが登録されています。');
+        console.warn('このスタッフは既にこの日のシフトが登録されています。');
         return false;
       }
 
