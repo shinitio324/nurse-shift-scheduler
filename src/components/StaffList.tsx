@@ -1,48 +1,59 @@
 import { useState } from 'react';
-import { Edit2, Trash2, Users } from 'lucide-react';
-import { Staff, StaffFormData } from '../types';
+import { Pencil, Trash2, UserPlus } from 'lucide-react';
 import { StaffForm } from './StaffForm';
+import { useStaff } from '../hooks/useStaff';
+import type { Staff, StaffFormData } from '../types';
 
-interface StaffListProps {
-  staff: Staff[];
-  onAdd: (data: StaffFormData) => Promise<boolean>;
-  onUpdate: (id: string, data: Partial<StaffFormData>) => Promise<boolean>;
-  onDelete: (id: string) => Promise<boolean>;
-  loading: boolean;
-}
-
-export function StaffList({ staff, onAdd, onUpdate, onDelete, loading }: StaffListProps) {
-  const [showForm, setShowForm] = useState(false);
+export function StaffList() {
+  const { staff, loading, addStaff, updateStaff, deleteStaff } = useStaff();
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
 
-  const handleDelete = async (id: string, name: string) => {
-    if (window.confirm(`${name} を削除してもよろしいですか？`)) {
-      await onDelete(id);
+  const handleSubmit = async (data: StaffFormData) => {
+    try {
+      if (editingStaff) {
+        await updateStaff(editingStaff.id, data);
+      } else {
+        await addStaff(data);
+      }
+      setIsFormOpen(false);
+      setEditingStaff(null);
+    } catch (error) {
+      console.error('スタッフの保存に失敗しました:', error);
+      alert('スタッフの保存に失敗しました。もう一度お試しください。');
     }
   };
 
-  const handleEdit = (staff: Staff) => {
-    setEditingStaff(staff);
-    setShowForm(true);
+  const handleEdit = (staffMember: Staff) => {
+    setEditingStaff(staffMember);
+    setIsFormOpen(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('このスタッフを削除してもよろしいですか？')) {
+      try {
+        await deleteStaff(id);
+      } catch (error) {
+        console.error('スタッフの削除に失敗しました:', error);
+        alert('スタッフの削除に失敗しました。もう一度お試しください。');
+      }
+    }
+  };
+
+  const handleAddNew = () => {
+    setEditingStaff(null);
+    setIsFormOpen(true);
   };
 
   const handleCloseForm = () => {
-    setShowForm(false);
+    setIsFormOpen(false);
     setEditingStaff(null);
-  };
-
-  const handleSubmit = async (data: StaffFormData) => {
-    if (editingStaff) {
-      return await onUpdate(editingStaff.id, data);
-    } else {
-      return await onAdd(data);
-    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-gray-500">読み込み中...</div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
@@ -50,31 +61,42 @@ export function StaffList({ staff, onAdd, onUpdate, onDelete, loading }: StaffLi
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">スタッフ管理</h2>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">スタッフ管理</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            登録スタッフ数: {staff.length}名
+          </p>
+        </div>
         <button
-          onClick={() => setShowForm(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          onClick={handleAddNew}
+          className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
         >
-          <Users className="w-4 h-4" />
-          スタッフを追加
+          <UserPlus className="w-5 h-5" />
+          <span>スタッフを追加</span>
         </button>
       </div>
 
-      {/* スタッフ一覧 */}
+      {/* スタッフリスト */}
       {staff.length === 0 ? (
-        <div className="text-center py-12">
-          <Users className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-          <p className="text-gray-500 mb-4">スタッフが登録されていません</p>
+        <div className="bg-white rounded-lg shadow-md p-12 text-center">
+          <UserPlus className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">
+            スタッフが登録されていません
+          </h3>
+          <p className="text-gray-600 mb-6">
+            「スタッフを追加」ボタンから最初のスタッフを登録しましょう
+          </p>
           <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={handleAddNew}
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
           >
-            最初のスタッフを登録
+            <UserPlus className="w-5 h-5" />
+            <span>スタッフを追加</span>
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -82,10 +104,10 @@ export function StaffList({ staff, onAdd, onUpdate, onDelete, loading }: StaffLi
                   氏名
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  役職
+                  職種
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  勤務形態
+                  雇用形態
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   資格
@@ -96,38 +118,42 @@ export function StaffList({ staff, onAdd, onUpdate, onDelete, loading }: StaffLi
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {staff.map((s) => (
-                <tr key={s.id} className="hover:bg-gray-50">
+              {staff.map((staffMember) => (
+                <tr key={staffMember.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{s.name}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {staffMember.name}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{s.position}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                      {s.employmentType}
+                    <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                      {staffMember.position}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                      {staffMember.employmentType}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
-                      {s.qualifications.length > 0 ? s.qualifications.join(', ') : '-'}
+                      {staffMember.qualifications.length > 0
+                        ? staffMember.qualifications.join(', ')
+                        : 'なし'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
-                      onClick={() => handleEdit(s)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                      title="編集"
+                      onClick={() => handleEdit(staffMember)}
+                      className="text-indigo-600 hover:text-indigo-900 mr-4"
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Pencil className="w-5 h-5" />
                     </button>
                     <button
-                      onClick={() => handleDelete(s.id, s.name)}
+                      onClick={() => handleDelete(staffMember.id)}
                       className="text-red-600 hover:text-red-900"
-                      title="削除"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </td>
                 </tr>
@@ -137,20 +163,16 @@ export function StaffList({ staff, onAdd, onUpdate, onDelete, loading }: StaffLi
         </div>
       )}
 
-      {/* フォームモーダル */}
-      {showForm && (
+      {/* スタッフ登録・編集フォーム */}
+      {isFormOpen && (
         <StaffForm
           onSubmit={handleSubmit}
           onClose={handleCloseForm}
-          initialData={editingStaff ? {
-            name: editingStaff.name,
-            position: editingStaff.position,
-            employmentType: editingStaff.employmentType,
-            qualifications: editingStaff.qualifications
-          } : undefined}
+          initialData={editingStaff || undefined}
           isEdit={!!editingStaff}
         />
       )}
     </div>
   );
 }
+
