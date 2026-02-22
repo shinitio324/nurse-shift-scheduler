@@ -76,3 +76,107 @@ export interface ShiftRequest {
   createdAt: Date;
   updatedAt: Date;
 }
+// ========================================
+// Phase 3-2: 制約条件とバリデーション
+// ========================================
+
+/**
+ * スケジュール制約条件
+ */
+export interface ScheduleConstraints {
+  id: string;
+  name: string;
+  description: string;
+  
+  // 連続勤務制約
+  maxConsecutiveWorkDays: number;        // 最大連続勤務日数
+  maxConsecutiveNightShifts: number;     // 最大連続夜勤回数
+  
+  // 休日制約
+  minRestDaysPerWeek: number;            // 週あたりの最低休日数
+  minRestDaysPerMonth: number;           // 月あたりの最低休日数
+  
+  // 夜勤制約
+  maxNightShiftsPerWeek: number;         // 週あたりの最大夜勤回数
+  maxNightShiftsPerMonth: number;        // 月あたりの最大夜勤回数
+  
+  // 勤務時間制約
+  maxWorkHoursPerWeek: number;           // 週あたりの最大勤務時間
+  maxWorkHoursPerMonth: number;          // 月あたりの最大勤務時間
+  
+  // その他
+  isActive: boolean;                     // 有効/無効
+  priority: number;                      // 優先度（1-10）
+  
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * 制約条件フォームデータ
+ */
+export interface ConstraintsFormData {
+  name: string;
+  description: string;
+  maxConsecutiveWorkDays: number;
+  maxConsecutiveNightShifts: number;
+  minRestDaysPerWeek: number;
+  minRestDaysPerMonth: number;
+  maxNightShiftsPerWeek: number;
+  maxNightShiftsPerMonth: number;
+  maxWorkHoursPerWeek: number;
+  maxWorkHoursPerMonth: number;
+  isActive: boolean;
+  priority: number;
+}
+
+/**
+ * シフトリクエストの状態
+ */
+export type ShiftRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+/**
+ * 拡張版シフトリクエスト（Shift型を拡張）
+ */
+export interface ShiftRequest extends Shift {
+  staffName?: string;                    // スタッフ名（結合用）
+  status: ShiftRequestStatus;            // リクエスト状態
+  note?: string;                         // 備考
+  requestedAt: Date;                     // リクエスト日時
+}
+
+/**
+ * シフトリクエストフォームデータ
+ */
+export interface ShiftRequestFormData {
+  staffId: string;
+  date: string;
+  shiftType: ShiftType;
+  note?: string;
+}
+
+/**
+ * カレンダー日付情報
+ */
+export interface CalendarDate {
+  date: Date;
+  dateString: string;                    // YYYY-MM-DD形式
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  isWeekend: boolean;
+  shiftRequests: ShiftRequest[];         // その日のシフトリクエスト
+}
+
+/**
+ * スタッフのシフト統計
+ */
+export interface StaffShiftStats {
+  staffId: string;
+  staffName: string;
+  totalShifts: number;
+  workDays: number;
+  restDays: number;
+  nightShifts: number;
+  totalWorkHours: number;
+  consecutiveWorkDays: number;
+}
