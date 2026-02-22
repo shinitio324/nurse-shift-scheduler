@@ -37,7 +37,6 @@ export const db = new NurseSchedulerDB();
 
 /**
  * デフォルト勤務パターンを初期化
- * Phase 3-1で実装
  */
 export async function initializeDefaultShiftPatterns() {
   const existingPatterns = await db.shiftPatterns.toArray();
@@ -125,7 +124,6 @@ export async function initializeDefaultShiftPatterns() {
 
 /**
  * デフォルト制約条件を初期化
- * Phase 3-2で実装
  */
 export async function initializeDefaultConstraints() {
   const existingConstraints = await db.scheduleConstraints.toArray();
@@ -140,26 +138,16 @@ export async function initializeDefaultConstraints() {
       id: crypto.randomUUID(),
       name: '標準制約（常勤看護師）',
       description: '正看護師・准看護師の標準的な勤務制約条件',
-      
-      // 連続勤務制約
-      maxConsecutiveWorkDays: 5,           // 最大5日連続勤務
-      maxConsecutiveNightShifts: 2,        // 最大2日連続夜勤
-      
-      // 休日制約
-      minRestDaysPerWeek: 2,               // 週2日以上の休み
-      minRestDaysPerMonth: 8,              // 月8日以上の休み
-      
-      // 夜勤制約
-      maxNightShiftsPerWeek: 2,            // 週2回まで夜勤
-      maxNightShiftsPerMonth: 8,           // 月8回まで夜勤
-      
-      // 勤務時間制約
-      maxWorkHoursPerWeek: 40,             // 週40時間まで
-      maxWorkHoursPerMonth: 160,           // 月160時間まで
-      
+      maxConsecutiveWorkDays: 5,
+      maxConsecutiveNightShifts: 2,
+      minRestDaysPerWeek: 2,
+      minRestDaysPerMonth: 8,
+      maxNightShiftsPerWeek: 2,
+      maxNightShiftsPerMonth: 8,
+      maxWorkHoursPerWeek: 40,
+      maxWorkHoursPerMonth: 160,
       isActive: true,
-      priority: 10,                        // 最高優先度
-      
+      priority: 10,
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -167,26 +155,16 @@ export async function initializeDefaultConstraints() {
       id: crypto.randomUUID(),
       name: '非常勤・パート制約',
       description: '非常勤・パートスタッフの勤務制約条件',
-      
-      // 連続勤務制約
-      maxConsecutiveWorkDays: 3,           // 最大3日連続勤務
-      maxConsecutiveNightShifts: 1,        // 最大1日夜勤
-      
-      // 休日制約
-      minRestDaysPerWeek: 3,               // 週3日以上の休み
-      minRestDaysPerMonth: 12,             // 月12日以上の休み
-      
-      // 夜勤制約
-      maxNightShiftsPerWeek: 1,            // 週1回まで夜勤
-      maxNightShiftsPerMonth: 4,           // 月4回まで夜勤
-      
-      // 勤務時間制約
-      maxWorkHoursPerWeek: 20,             // 週20時間まで
-      maxWorkHoursPerMonth: 80,            // 月80時間まで
-      
+      maxConsecutiveWorkDays: 3,
+      maxConsecutiveNightShifts: 1,
+      minRestDaysPerWeek: 3,
+      minRestDaysPerMonth: 12,
+      maxNightShiftsPerWeek: 1,
+      maxNightShiftsPerMonth: 4,
+      maxWorkHoursPerWeek: 20,
+      maxWorkHoursPerMonth: 80,
       isActive: true,
       priority: 8,
-      
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -194,26 +172,16 @@ export async function initializeDefaultConstraints() {
       id: crypto.randomUUID(),
       name: '妊娠中スタッフ制約',
       description: '妊娠中のスタッフ向けの軽減された勤務制約',
-      
-      // 連続勤務制約
-      maxConsecutiveWorkDays: 3,           // 最大3日連続勤務
-      maxConsecutiveNightShifts: 0,        // 夜勤なし
-      
-      // 休日制約
-      minRestDaysPerWeek: 2,               // 週2日以上の休み
-      minRestDaysPerMonth: 10,             // 月10日以上の休み
-      
-      // 夜勤制約
-      maxNightShiftsPerWeek: 0,            // 夜勤なし
-      maxNightShiftsPerMonth: 0,           // 夜勤なし
-      
-      // 勤務時間制約
-      maxWorkHoursPerWeek: 30,             // 週30時間まで
-      maxWorkHoursPerMonth: 120,           // 月120時間まで
-      
-      isActive: false,                     // デフォルトは無効
+      maxConsecutiveWorkDays: 3,
+      maxConsecutiveNightShifts: 0,
+      minRestDaysPerWeek: 2,
+      minRestDaysPerMonth: 10,
+      maxNightShiftsPerWeek: 0,
+      maxNightShiftsPerMonth: 0,
+      maxWorkHoursPerWeek: 30,
+      maxWorkHoursPerMonth: 120,
+      isActive: false,
       priority: 9,
-      
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -237,28 +205,5 @@ export async function initializeDatabase() {
     console.log('データベースの初期化が完了しました');
   } catch (error) {
     console.error('データベースの初期化に失敗しました:', error);
-  }
-}
-
-/**
- * データベースのリセット（開発用）
- */
-export async function resetDatabase() {
-  try {
-    await db.delete();
-    console.log('データベースを削除しました');
-    
-    // 再作成
-    const newDb = new NurseSchedulerDB();
-    await initializeDatabase();
-    console.log('データベースを再作成しました');
-  } catch (error) {
-    console.error('データベースのリセットに失敗しました:', error);
-  }
-}
-
-
-    await db.shiftPatterns.bulkAdd(defaultPatterns);
-    console.log('Default shift patterns initialized');
   }
 }
