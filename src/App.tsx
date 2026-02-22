@@ -1,56 +1,193 @@
 import { useState } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
-import { useStaff } from './hooks/useStaff';
 import { StaffList } from './components/StaffList';
 import { CalendarView } from './components/CalendarView';
+import { SettingsPanel } from './components/SettingsPanel';
+import { useStaff } from './hooks/useStaff';
 
-function App() {
-  const [activeTab, setActiveTab] = useState('calendar');
-  const { staff, loading, addStaff, updateStaff, deleteStaff } = useStaff();
+type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabType>('calendar');
+  const { staff } = useStaff();
+
+  const tabs = [
+    { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
+    { id: 'staff' as TabType, label: 'スタッフ管理', icon: Users },
+    { id: 'requests' as TabType, label: 'シフト入力', icon: FileText },
+    { id: 'statistics' as TabType, label: '統計', icon: BarChart3 },
+    { id: 'export' as TabType, label: 'エクスポート', icon: Download },
+    { id: 'settings' as TabType, label: '設定', icon: Settings },
+  ];
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'calendar':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">勤務表カレンダー</h2>
+                <p className="text-sm text-gray-600 mt-1">月次の勤務スケジュールを表示します</p>
+              </div>
+              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                自動生成
+              </button>
+            </div>
+            <CalendarView />
+          </div>
+        );
+
+      case 'staff':
+        return <StaffList />;
+
+      case 'requests':
+        return (
+          <div className="bg-white rounded-lg shadow-md p-8">
+            <div className="text-center">
+              <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">シフト希望入力</h3>
+              <p className="text-gray-600 mb-4">
+                スタッフごとの勤務希望や休み希望を入力できます
+              </p>
+              <p className="text-sm text-indigo-600 font-medium">
+                Phase 3-2 で実装予定
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'statistics':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">統計情報</h2>
+              <p className="text-sm text-gray-600 mt-1">スタッフと勤務の統計データ</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-blue-100 text-sm font-medium">登録スタッフ数</p>
+                    <p className="text-3xl font-bold mt-2">{staff.length}名</p>
+                  </div>
+                  <Users className="w-12 h-12 text-blue-200 opacity-80" />
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-100 text-sm font-medium">今月のシフト</p>
+                    <p className="text-3xl font-bold mt-2">0件</p>
+                  </div>
+                  <Calendar className="w-12 h-12 text-green-200 opacity-80" />
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-100 text-sm font-medium">シフト希望</p>
+                    <p className="text-3xl font-bold mt-2">0件</p>
+                  </div>
+                  <FileText className="w-12 h-12 text-purple-200 opacity-80" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-8">
+              <div className="text-center">
+                <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">詳細な統計レポート</h3>
+                <p className="text-gray-600 mb-4">
+                  勤務パターン別の分布、スタッフごとの勤務時間など
+                </p>
+                <p className="text-sm text-indigo-600 font-medium">
+                  Phase 4 で実装予定
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'export':
+        return (
+          <div className="bg-white rounded-lg shadow-md p-8">
+            <div className="text-center">
+              <Download className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">データエクスポート</h3>
+              <p className="text-gray-600 mb-6">
+                勤務表をPDF、Excel、CSV形式でエクスポートできます
+              </p>
+              <div className="flex justify-center space-x-4">
+                <button className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md opacity-50 cursor-not-allowed">
+                  PDF出力
+                </button>
+                <button className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-md opacity-50 cursor-not-allowed">
+                  Excel出力
+                </button>
+                <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md opacity-50 cursor-not-allowed">
+                  CSV出力
+                </button>
+              </div>
+              <p className="text-sm text-indigo-600 font-medium mt-6">
+                Phase 5 で実装予定
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'settings':
+        return <SettingsPanel />;
+
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* ヘッダー */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
+      <header className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">🚀 看護師勤務表システム v2.0</h1>
-              <p className="text-sm text-gray-500 mt-1">オンライン版 v1.0.0</p>
-            </div>
-            <div className="flex gap-3">
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                <Download className="w-4 h-4" />
-                エクスポート
-              </button>
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-lg">
+                <Calendar className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">
+                  🚀 看護師勤務表システム v2.0
+                </h1>
+                <p className="text-sm text-gray-600">Phase 3-1: 勤務パターン設定機能</p>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
       {/* ナビゲーション */}
-      <nav className="bg-white border-b border-gray-200">
+      <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {[
-              { id: 'calendar', icon: Calendar, label: '勤務表' },
-              { id: 'staff', icon: Users, label: 'スタッフ管理' },
-              { id: 'requests', icon: FileText, label: 'シフト入力' },
-              { id: 'statistics', icon: BarChart3, label: '統計' },
-              { id: 'export', icon: Download, label: 'エクスポート' },
-              { id: 'settings', icon: Settings, label: '設定' }
-            ].map(({ id, icon: Icon, label }) => (
+          <div className="flex space-x-1 overflow-x-auto">
+            {tabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-2 px-3 py-4 border-b-2 transition-colors ${
-                  activeTab === id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                className={`
+                  flex items-center space-x-2 px-4 py-3 font-medium text-sm transition-all
+                  border-b-2 whitespace-nowrap
+                  ${
+                    activeTab === id
+                      ? 'border-indigo-600 text-indigo-600 bg-indigo-50'
+                      : 'border-transparent text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                  }
+                `}
               >
                 <Icon className="w-5 h-5" />
-                <span className="font-medium">{label}</span>
+                <span>{label}</span>
               </button>
             ))}
           </div>
@@ -59,136 +196,18 @@ function App() {
 
       {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'calendar' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <CalendarView />
-          </div>
-        )}
-
-        {activeTab === 'staff' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <StaffList
-              staff={staff}
-              onAdd={addStaff}
-              onUpdate={updateStaff}
-              onDelete={deleteStaff}
-              loading={loading}
-            />
-          </div>
-        )}
-
-        {activeTab === 'requests' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-4">シフト希望入力</h2>
-            <div className="text-center py-12">
-              <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500 mb-2">シフト希望入力機能</p>
-              <p className="text-sm text-gray-400">Phase 3 で実装予定</p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'statistics' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-4">統計情報</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6">
-                <div className="text-sm text-blue-600 font-medium mb-1">登録スタッフ数</div>
-                <div className="text-3xl font-bold text-blue-900">{staff.length}名</div>
-              </div>
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6">
-                <div className="text-sm text-green-600 font-medium mb-1">今月のシフト数</div>
-                <div className="text-3xl font-bold text-green-900">0件</div>
-              </div>
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-6">
-                <div className="text-sm text-purple-600 font-medium mb-1">未確定シフト</div>
-                <div className="text-3xl font-bold text-purple-900">0件</div>
-              </div>
-            </div>
-            <div className="text-center py-8">
-              <BarChart3 className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500 mb-2">詳細な統計グラフ</p>
-              <p className="text-sm text-gray-400">Phase 3 で実装予定</p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'export' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-6">データエクスポート</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button className="p-6 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                <Download className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-                <div className="font-semibold">PDF出力</div>
-                <div className="text-sm text-gray-500 mt-1">印刷用フォーマット</div>
-                <div className="text-xs text-gray-400 mt-2">Phase 3 で実装予定</div>
-              </button>
-              <button className="p-6 border-2 border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors">
-                <Download className="w-8 h-8 mx-auto mb-2 text-green-600" />
-                <div className="font-semibold">Excel出力</div>
-                <div className="text-sm text-gray-500 mt-1">編集可能な形式</div>
-                <div className="text-xs text-gray-400 mt-2">Phase 3 で実装予定</div>
-              </button>
-              <button className="p-6 border-2 border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors">
-                <Download className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-                <div className="font-semibold">CSV出力</div>
-                <div className="text-sm text-gray-500 mt-1">データ分析用</div>
-                <div className="text-xs text-gray-400 mt-2">Phase 3 で実装予定</div>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-6">システム設定</h2>
-            <div className="space-y-4">
-              <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                <h3 className="font-semibold mb-2">基本設定</h3>
-                <p className="text-sm text-gray-600 mb-2">施設情報、部署設定など</p>
-                <p className="text-xs text-gray-400">Phase 3 で実装予定</p>
-              </div>
-              <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                <h3 className="font-semibold mb-2">シフトパターン</h3>
-                <p className="text-sm text-gray-600 mb-2">勤務種別の定義</p>
-                <p className="text-xs text-gray-400">Phase 3 で実装予定</p>
-              </div>
-              <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                <h3 className="font-semibold mb-2">制約条件</h3>
-                <p className="text-sm text-gray-600 mb-2">スケジュール生成ルール</p>
-                <p className="text-xs text-gray-400">Phase 3 で実装予定</p>
-              </div>
-              <div className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                <h3 className="font-semibold mb-2">データ管理</h3>
-                <p className="text-sm text-gray-600 mb-2">バックアップと復元</p>
-                <div className="flex gap-2 mt-3">
-                  <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
-                    バックアップ
-                  </button>
-                  <button className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                    復元
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderContent()}
       </main>
 
       {/* フッター */}
-      <footer className="bg-white border-t border-gray-200 mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="text-center text-gray-500 text-sm">
+      <footer className="bg-white shadow-md mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center text-sm text-gray-600">
             <p>看護師勤務表システム オンライン版 v1.0.0</p>
-            <p className="mt-1">© 2026 Nurse Shift Scheduler. All rights reserved.</p>
-            <p className="mt-2 text-xs">
-              登録スタッフ数: {staff.length}名 | データはブラウザに保存されます
-            </p>
+            <p>登録スタッフ数: {staff.length}名 | データはブラウザに保存されます</p>
           </div>
         </div>
       </footer>
     </div>
   );
 }
-
-export default App;
