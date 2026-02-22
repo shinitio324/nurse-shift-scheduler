@@ -3,13 +3,18 @@ import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide
 import { StaffList } from './components/StaffList';
 import { CalendarView } from './components/CalendarView';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ShiftRequestCalendar } from './components/ShiftRequestCalendar';
+import { ShiftRequestList } from './components/ShiftRequestList';
+import { ConstraintSettings } from './components/ConstraintSettings';
 import { useStaff } from './hooks/useStaff';
+import { useShiftRequests } from './hooks/useShiftRequests';
 
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('calendar');
   const { staff } = useStaff();
+  const { shiftRequests } = useShiftRequests();
 
   const tabs = [
     { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
@@ -43,16 +48,46 @@ export default function App() {
 
       case 'requests':
         return (
-          <div className="bg-white rounded-lg shadow-md p-8">
-            <div className="text-center">
-              <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">シフト希望入力</h3>
-              <p className="text-gray-600 mb-4">
+          <div className="space-y-6">
+            {/* ヘッダー */}
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">シフト希望入力</h2>
+              <p className="text-sm text-gray-600 mt-1">
                 スタッフごとの勤務希望や休み希望を入力できます
               </p>
-              <p className="text-sm text-indigo-600 font-medium">
-                Phase 3-2 で実装予定
-              </p>
+            </div>
+
+            {/* タブ切り替え */}
+            <div className="bg-white rounded-lg shadow-md">
+              <div className="border-b border-gray-200">
+                <nav className="flex space-x-1 p-2">
+                  <button
+                    onClick={() => setActiveTab('requests')}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-100 text-indigo-700"
+                  >
+                    📅 カレンダー入力
+                  </button>
+                  <button
+                    onClick={() => {
+                      const listSection = document.getElementById('shift-request-list');
+                      if (listSection) {
+                        listSection.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100"
+                  >
+                    📋 一覧表示
+                  </button>
+                </nav>
+              </div>
+            </div>
+
+            {/* カレンダー入力 */}
+            <ShiftRequestCalendar />
+
+            {/* 一覧表示 */}
+            <div id="shift-request-list">
+              <ShiftRequestList />
             </div>
           </div>
         );
@@ -79,8 +114,8 @@ export default function App() {
               <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-green-100 text-sm font-medium">今月のシフト</p>
-                    <p className="text-3xl font-bold mt-2">0件</p>
+                    <p className="text-green-100 text-sm font-medium">登録済みシフト</p>
+                    <p className="text-3xl font-bold mt-2">{shiftRequests.length}件</p>
                   </div>
                   <Calendar className="w-12 h-12 text-green-200 opacity-80" />
                 </div>
@@ -90,7 +125,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-purple-100 text-sm font-medium">シフト希望</p>
-                    <p className="text-3xl font-bold mt-2">0件</p>
+                    <p className="text-3xl font-bold mt-2">{shiftRequests.length}件</p>
                   </div>
                   <FileText className="w-12 h-12 text-purple-200 opacity-80" />
                 </div>
@@ -140,7 +175,41 @@ export default function App() {
         );
 
       case 'settings':
-        return <SettingsPanel />;
+        return (
+          <div className="space-y-6">
+            {/* 設定タブ内のサブタブ */}
+            <div className="bg-white rounded-lg shadow-md">
+              <div className="border-b border-gray-200">
+                <nav className="flex space-x-1 p-2">
+                  <button
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-100 text-indigo-700"
+                  >
+                    ⚙️ 勤務パターン設定
+                  </button>
+                  <button
+                    onClick={() => {
+                      const constraintSection = document.getElementById('constraint-settings');
+                      if (constraintSection) {
+                        constraintSection.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-100"
+                  >
+                    🔒 制約条件設定
+                  </button>
+                </nav>
+              </div>
+            </div>
+
+            {/* 勤務パターン設定 */}
+            <SettingsPanel />
+
+            {/* 制約条件設定 */}
+            <div id="constraint-settings" className="scroll-mt-6">
+              <ConstraintSettings />
+            </div>
+          </div>
+        );
 
       default:
         return null;
@@ -161,7 +230,7 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-gray-800">
                   🚀 看護師勤務表システム v2.0
                 </h1>
-                <p className="text-sm text-gray-600">Phase 3-1: 勤務パターン設定機能</p>
+                <p className="text-sm text-gray-600">Phase 3-2: シフト希望入力機能</p>
               </div>
             </div>
           </div>
@@ -203,8 +272,10 @@ export default function App() {
       <footer className="bg-white shadow-md mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col sm:flex-row justify-between items-center text-sm text-gray-600">
-            <p>看護師勤務表システム オンライン版 v1.0.0</p>
-            <p>登録スタッフ数: {staff.length}名 | データはブラウザに保存されます</p>
+            <p>看護師勤務表システム オンライン版 v1.0.0 (Phase 3-2)</p>
+            <p>
+              登録スタッフ数: {staff.length}名 | シフト登録: {shiftRequests.length}件 | データはブラウザに保存されます
+            </p>
           </div>
         </div>
       </footer>
