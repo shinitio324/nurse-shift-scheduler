@@ -15,7 +15,8 @@ import { useScheduleGenerator } from './hooks/useScheduleGenerator';
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('staff'); // 初期タブを「スタッフ管理」に変更
+  const [activeTab, setActiveTab] = useState<TabType>('calendar');
+  const [showPreview, setShowPreview] = useState(false);
   const { staff, loading: staffLoading } = useStaff();
   const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
   const { result, clearResult } = useScheduleGenerator();
@@ -27,7 +28,17 @@ export default function App() {
     console.log('  スタッフ数:', staff.length);
     console.log('  シフト読み込み中:', shiftsLoading);
     console.log('  シフト数:', shiftRequests.length);
-  }, [staff, shiftRequests, staffLoading, shiftsLoading]);
+    console.log('  生成結果:', result ? 'あり' : 'なし');
+    console.log('  showPreview:', showPreview);
+  }, [staff, shiftRequests, staffLoading, shiftsLoading, result, showPreview]);
+
+  // result が更新されたら showPreview を true にする
+  useEffect(() => {
+    if (result) {
+      console.log('✅ 生成結果を検出しました。プレビュー画面を表示します。');
+      setShowPreview(true);
+    }
+  }, [result]);
 
   const tabs = [
     { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
@@ -39,23 +50,29 @@ export default function App() {
   ];
 
   const handleScheduleGenerated = () => {
-    // 生成完了後の処理（何もしない - プレビューを表示）
+    console.log('📋 スケジュール生成完了コールバック');
+    setShowPreview(true);
   };
 
   const handleScheduleSaved = () => {
+    console.log('💾 スケジュール保存完了');
     clearResult();
+    setShowPreview(false);
     setActiveTab('calendar');
     // シフトデータを再読み込み
     window.location.reload();
   };
 
   const handleScheduleCancelled = () => {
+    console.log('❌ スケジュール生成をキャンセル');
     clearResult();
+    setShowPreview(false);
   };
 
   const renderContent = () => {
     // スケジュール生成結果がある場合はプレビューを表示
-    if (result && activeTab === 'calendar') {
+    if (showPreview && result && activeTab === 'calendar') {
+      console.log('🖼️ プレビュー画面を表示します');
       return (
         <SchedulePreview
           result={result}
@@ -167,6 +184,7 @@ export default function App() {
               </h1>
               <p className="text-sm text-gray-600 mt-1">
                 Phase 3-3: 自動スケジュール生成機能
+                {showPreview && result && <span className="ml-2 text-green-600">（プレビュー表示中）</span>}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -196,7 +214,12 @@ export default function App() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    if (tab.id !== 'calendar') {
+                      setShowPreview(false);
+                    }
+                  }}
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? 'border-indigo-600 text-indigo-600'
@@ -224,6 +247,7 @@ export default function App() {
             看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 | 
             IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} | 
             シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+            {showPreview && result && ' | プレビュー表示中'}
           </p>
         </div>
       </footer>
