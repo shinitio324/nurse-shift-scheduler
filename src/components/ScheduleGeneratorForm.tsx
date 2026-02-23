@@ -20,12 +20,22 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
   const [balanceWorkload, setBalanceWorkload] = useState(true);
   const [balanceNightShifts, setBalanceNightShifts] = useState(true);
 
-  const { generating, generateSchedule } = useScheduleGenerator();
+  const { generating, generateSchedule, result } = useScheduleGenerator();
 
   // 制約条件を読み込み
   useEffect(() => {
     loadConstraints();
   }, []);
+
+  // result が更新されたら onGenerated を呼ぶ
+  useEffect(() => {
+    if (result) {
+      console.log('✅ ScheduleGeneratorForm: 生成結果を検出しました');
+      console.log('📊 生成されたシフト:', result.schedules.length, '件');
+      console.log('🔔 onGenerated コールバックを呼び出します');
+      onGenerated();
+    }
+  }, [result, onGenerated]);
 
   const loadConstraints = async () => {
     try {
@@ -70,10 +80,15 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
 
     console.log('🚀 スケジュール生成を開始します...', params);
 
-    const result = await generateSchedule(params);
+    const generationResult = await generateSchedule(params);
 
-    if (result) {
+    if (generationResult) {
       console.log('✅ スケジュール生成が完了しました！');
+      console.log('📊 結果:', generationResult.schedules.length, '件のシフト');
+      console.log('⚠️ 違反:', generationResult.violations.length, '件');
+      
+      // 明示的に onGenerated を呼ぶ（念のため）
+      console.log('🔔 onGenerated コールバックを直接呼び出します');
       onGenerated();
     }
   };
@@ -236,6 +251,18 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">
             💡 スケジュール生成には数秒かかる場合があります。しばらくお待ちください...
+          </p>
+        </div>
+      )}
+
+      {/* デバッグ情報 */}
+      {result && (
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-sm text-green-800 font-medium">
+            ✅ 生成完了: {result.schedules.length}件のシフトを生成しました
+          </p>
+          <p className="text-xs text-green-700 mt-1">
+            制約違反: {result.violations.length}件
           </p>
         </div>
       )}
