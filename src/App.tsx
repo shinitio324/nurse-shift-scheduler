@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
 import { StaffList } from './components/StaffList';
 import { CalendarView } from './components/CalendarView';
@@ -15,10 +15,19 @@ import { useScheduleGenerator } from './hooks/useScheduleGenerator';
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('calendar');
-  const { staff } = useStaff();
-  const { shiftRequests } = useShiftRequests();
+  const [activeTab, setActiveTab] = useState<TabType>('staff'); // 初期タブを「スタッフ管理」に変更
+  const { staff, loading: staffLoading } = useStaff();
+  const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
   const { result, clearResult } = useScheduleGenerator();
+
+  // デバッグ用ログ
+  useEffect(() => {
+    console.log('📊 App.tsx - データ状態:');
+    console.log('  スタッフ読み込み中:', staffLoading);
+    console.log('  スタッフ数:', staff.length);
+    console.log('  シフト読み込み中:', shiftsLoading);
+    console.log('  シフト数:', shiftRequests.length);
+  }, [staff, shiftRequests, staffLoading, shiftsLoading]);
 
   const tabs = [
     { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
@@ -36,6 +45,8 @@ export default function App() {
   const handleScheduleSaved = () => {
     clearResult();
     setActiveTab('calendar');
+    // シフトデータを再読み込み
+    window.location.reload();
   };
 
   const handleScheduleCancelled = () => {
@@ -83,15 +94,21 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="p-6 bg-blue-50 rounded-lg">
                 <p className="text-sm text-blue-600 font-medium mb-2">登録スタッフ数</p>
-                <p className="text-3xl font-bold text-blue-700">{staff.length}名</p>
+                <p className="text-3xl font-bold text-blue-700">
+                  {staffLoading ? '読み込み中...' : `${staff.length}名`}
+                </p>
               </div>
               <div className="p-6 bg-green-50 rounded-lg">
                 <p className="text-sm text-green-600 font-medium mb-2">登録済みシフト</p>
-                <p className="text-3xl font-bold text-green-700">{shiftRequests.length}件</p>
+                <p className="text-3xl font-bold text-green-700">
+                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
+                </p>
               </div>
               <div className="p-6 bg-purple-50 rounded-lg">
                 <p className="text-sm text-purple-600 font-medium mb-2">シフト希望</p>
-                <p className="text-3xl font-bold text-purple-700">{shiftRequests.length}件</p>
+                <p className="text-3xl font-bold text-purple-700">
+                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
+                </p>
               </div>
             </div>
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
@@ -155,11 +172,15 @@ export default function App() {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-sm text-gray-600">登録スタッフ</p>
-                <p className="text-lg font-bold text-indigo-600">{staff.length}名</p>
+                <p className="text-lg font-bold text-indigo-600">
+                  {staffLoading ? '...' : `${staff.length}名`}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">登録シフト</p>
-                <p className="text-lg font-bold text-green-600">{shiftRequests.length}件</p>
+                <p className="text-lg font-bold text-green-600">
+                  {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+                </p>
               </div>
             </div>
           </div>
@@ -201,7 +222,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
             看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 | 
-            IndexedDB使用 | スタッフ: {staff.length}名 | シフト: {shiftRequests.length}件
+            IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} | 
+            シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
           </p>
         </div>
       </footer>
