@@ -180,3 +180,80 @@ export interface StaffShiftStats {
   totalWorkHours: number;
   consecutiveWorkDays: number;
 }
+// ========================================
+// Phase 3-3: 自動スケジュール生成
+// ========================================
+
+/**
+ * 生成されたスケジュール（1日分）
+ */
+export interface GeneratedSchedule {
+  id: string;
+  date: string; // YYYY-MM-DD
+  staffId: string;
+  staffName: string;
+  shiftType: string;
+  isManuallyAdjusted: boolean;
+  constraintViolations: string[]; // 違反した制約のリスト
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * スケジュール生成パラメータ
+ */
+export interface ScheduleGenerationParams {
+  targetYear: number;
+  targetMonth: number;
+  constraintIds: string[]; // 適用する制約条件のID
+  prioritizeRequests: boolean; // シフト希望を優先するか
+  balanceWorkload: boolean; // 勤務配分を均等化するか
+  balanceNightShifts: boolean; // 夜勤を均等配分するか
+}
+
+/**
+ * スケジュール生成結果
+ */
+export interface ScheduleGenerationResult {
+  schedules: GeneratedSchedule[];
+  statistics: ScheduleStatistics;
+  violations: ConstraintViolation[];
+  generatedAt: Date;
+}
+
+/**
+ * スケジュール統計情報
+ */
+export interface ScheduleStatistics {
+  totalDays: number;
+  totalShifts: number;
+  staffWorkload: {
+    staffId: string;
+    staffName: string;
+    totalShifts: number;
+    nightShifts: number;
+    restDays: number;
+    consecutiveWorkDays: number;
+    totalWorkHours: number;
+  }[];
+  shiftTypeDistribution: {
+    shiftType: string;
+    count: number;
+    requiredStaff: number;
+    actualStaff: number;
+  }[];
+}
+
+/**
+ * 制約違反情報
+ */
+export interface ConstraintViolation {
+  date: string;
+  staffId: string;
+  staffName: string;
+  constraintName: string;
+  violationType: 'consecutive_work' | 'consecutive_night' | 'rest_days' | 
+                 'night_shifts' | 'work_hours' | 'required_staff';
+  severity: 'error' | 'warning';
+  message: string;
+}
