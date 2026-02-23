@@ -1,199 +1,226 @@
 import { useState } from 'react';
-import { Edit2, Trash2, Clock } from 'lucide-react';
-import { ShiftPattern, ShiftPatternFormData } from '../types';
+import { Pencil, Trash2, Plus } from 'lucide-react';
 import { ShiftPatternForm } from './ShiftPatternForm';
+import { useShiftPatterns } from '../hooks/useShiftPatterns';
+import type { ShiftPattern, ShiftPatternFormData } from '../types';
 
-interface ShiftPatternListProps {
-  patterns: ShiftPattern[];
-  onAdd: (data: ShiftPatternFormData) => Promise<boolean>;
-  onUpdate: (id: string, data: Partial<ShiftPatternFormData>) => Promise<boolean>;
-  onDelete: (id: string) => Promise<boolean>;
-  loading: boolean;
-}
-
-export function ShiftPatternList({ patterns, onAdd, onUpdate, onDelete, loading }: ShiftPatternListProps) {
-  const [showForm, setShowForm] = useState(false);
+export function ShiftPatternList() {
+  const { patterns, loading, addPattern, updatePattern, deletePattern } = useShiftPatterns();
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingPattern, setEditingPattern] = useState<ShiftPattern | null>(null);
 
-  const handleDelete = async (pattern: ShiftPattern) => {
-    if (window.confirm(`「${pattern.name}」を削除してもよろしいですか？`)) {
-      await onDelete(pattern.id);
+  const handleSubmit = async (data: ShiftPatternFormData) => {
+    try {
+      let success: boolean;
+      
+      if (editingPattern) {
+        success = await updatePattern(editingPattern.id, data);
+      } else {
+        success = await addPattern(data);
+      }
+
+      if (success) {
+        setIsFormOpen(false);
+        setEditingPattern(null);
+      }
+    } catch (error) {
+      console.error('勤務パターンの保存に失敗しました:', error);
+      alert('勤務パターンの保存に失敗しました');
     }
   };
 
   const handleEdit = (pattern: ShiftPattern) => {
     setEditingPattern(pattern);
-    setShowForm(true);
+    setIsFormOpen(true);
+  };
+
+  const handleDelete = async (pattern: ShiftPattern) => {
+    console.log('削除ボタンがクリックされました:', pattern.name);
+    
+    // 確認ダイアログを表示
+    const confirmMessage = `勤務パターン「${pattern.name}」を削除してもよろしいですか？`;
+    const confirmed = window.confirm(confirmMessage);
+    
+    console.log('削除確認結果:', confirmed);
+    
+    if (!confirmed) {
+      console.log('削除がキャンセルされました');
+      return;
+    }
+
+    try {
+      console.log('削除処理を開始します:', pattern.id);
+      const success = await deletePattern(pattern.id);
+      
+      if (success) {
+        console.log('削除に成功しました');
+      } else {
+        console.log('削除に失敗しました');
+      }
+    } catch (error) {
+      console.error('削除処理で例外が発生しました:', error);
+      alert('削除処理でエラーが発生しました');
+    }
+  };
+
+  const handleAddNew = () => {
+    setEditingPattern(null);
+    setIsFormOpen(true);
   };
 
   const handleCloseForm = () => {
-    setShowForm(false);
+    setIsFormOpen(false);
     setEditingPattern(null);
-  };
-
-  const handleSubmit = async (data: ShiftPatternFormData) => {
-    if (editingPattern) {
-      return await onUpdate(editingPattern.id, data);
-    } else {
-      return await onAdd(data);
-    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-gray-500">読み込み中...</div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
+  // 勤務パターンを sortOrder でソート
+  const sortedPatterns = [...patterns].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  // 統計情報を計算
+  const totalRequired = patterns
+    .filter(p => p.isWorkday)
+    .reduce((sum, p) => sum + p.requiredStaff, 0);
+
+  const workPatterns = patterns.filter(p => p.isWorkday);
+
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">勤務パターン設定</h3>
+          <h3 className="text-xl font-bold text-gray-800">勤務パターン一覧</h3>
           <p className="text-sm text-gray-600 mt-1">
-            シフトの種類と勤務時間を設定します
+            登録済み: {patterns.length} 種類
           </p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          onClick={handleAddNew}
+          className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
         >
-          <Clock className="w-4 h-4" />
-          新しいパターンを追加
+          <Plus className="w-5 h-5" />
+          <span>新しいパターンを追加</span>
         </button>
       </div>
 
-      {/* パターン一覧 */}
-      {patterns.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <Clock className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-          <p className="text-gray-500 mb-4">シフトパターンが登録されていません</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            最初のパターンを登録
-          </button>
+      {/* パターンリスト */}
+      {sortedPatterns.length === 0 ? (
+        <div className="bg-white rounded-lg shadow-md p-12 text-center">
+          <Plus className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h4 className="text-xl font-semibold text-gray-800 mb-2">
+            勤務パターンが登録されていません
+          </h4>
+          <p className="text-gray-600 mb-6">
+            「新しいパターンを追加」ボタンから勤務パターンを登録しましょう
+          </p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="grid grid-cols-1 divide-y divide-gray-200">
-            {patterns.map((pattern) => (
-              <div
-                key={pattern.id}
-                className="p-4 hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  {/* 左側：パターン情報 */}
-                  <div className="flex items-center gap-4 flex-1">
-                    {/* 色と略称 */}
-                    <div
-                      className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg"
-                      style={{ backgroundColor: pattern.color }}
-                    >
-                      {pattern.shortName}
-                    </div>
-
-                    {/* パターン詳細 */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-gray-900">
-                          {pattern.name}
-                        </h4>
-                        {!pattern.isWorkday && (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                            休日
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                        {pattern.isWorkday ? (
-                          <>
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-4 h-4" />
-                              {pattern.startTime} - {pattern.endTime}
-                            </span>
-                            <span>
-                              必要人数: <strong>{pattern.requiredStaff}名</strong>
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-gray-500">勤務時間なし</span>
-                        )}
-                      </div>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {sortedPatterns.map((pattern) => (
+            <div
+              key={pattern.id}
+              className="bg-white rounded-lg shadow-md p-4 border-l-4 hover:shadow-lg transition-shadow"
+              style={{ borderLeftColor: pattern.color }}
+            >
+              {/* パターンヘッダー */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div
+                    className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-bold shadow-md"
+                    style={{ backgroundColor: pattern.color }}
+                  >
+                    {pattern.shortName}
                   </div>
-
-                  {/* 右側：操作ボタン */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleEdit(pattern)}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="編集"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(pattern)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="削除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div>
+                    <h4 className="font-bold text-gray-800">{pattern.name}</h4>
+                    <p className="text-xs text-gray-500">
+                      {pattern.isWorkday ? '勤務' : '休暇'}
+                    </p>
                   </div>
                 </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => handleEdit(pattern)}
+                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                    title="編集"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('削除ボタンクリック:', pattern.name);
+                      handleDelete(pattern);
+                    }}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="削除"
+                    type="button"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
+
+              {/* パターン詳細 */}
+              {pattern.isWorkday && (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">勤務時間:</span>
+                    <span className="font-semibold text-gray-800">
+                      {pattern.startTime} - {pattern.endTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">必要人数:</span>
+                    <span className="font-semibold text-indigo-600">
+                      {pattern.requiredStaff}名
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
       {/* 統計情報 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-blue-50 rounded-lg p-4">
-          <div className="text-sm text-blue-600 font-medium mb-1">
-            登録パターン数
-          </div>
-          <div className="text-2xl font-bold text-blue-900">
-            {patterns.length}
-          </div>
-        </div>
-        <div className="bg-green-50 rounded-lg p-4">
-          <div className="text-sm text-green-600 font-medium mb-1">
-            勤務パターン
-          </div>
-          <div className="text-2xl font-bold text-green-900">
-            {patterns.filter(p => p.isWorkday).length}
-          </div>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <div className="text-sm text-gray-600 font-medium mb-1">
-            総必要人数
-          </div>
-          <div className="text-2xl font-bold text-gray-900">
-            {patterns.filter(p => p.isWorkday).reduce((sum, p) => sum + p.requiredStaff, 0)}名
+      {patterns.length > 0 && (
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg shadow-md p-6">
+          <h4 className="font-semibold text-gray-800 mb-4">統計情報</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">登録済みパターン</p>
+              <p className="text-3xl font-bold text-indigo-600">{patterns.length}</p>
+              <p className="text-xs text-gray-500 mt-1">種類</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">勤務パターン</p>
+              <p className="text-3xl font-bold text-green-600">{workPatterns.length}</p>
+              <p className="text-xs text-gray-500 mt-1">種類</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">総必要人数</p>
+              <p className="text-3xl font-bold text-orange-600">{totalRequired}</p>
+              <p className="text-xs text-gray-500 mt-1">名</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* フォームモーダル */}
-      {showForm && (
+      {isFormOpen && (
         <ShiftPatternForm
           onSubmit={handleSubmit}
           onClose={handleCloseForm}
-          initialData={editingPattern ? {
-            name: editingPattern.name,
-            shortName: editingPattern.shortName,
-            startTime: editingPattern.startTime,
-            endTime: editingPattern.endTime,
-            requiredStaff: editingPattern.requiredStaff,
-            color: editingPattern.color,
-            isWorkday: editingPattern.isWorkday
-          } : undefined}
+          initialData={editingPattern || undefined}
           isEdit={!!editingPattern}
         />
       )}
