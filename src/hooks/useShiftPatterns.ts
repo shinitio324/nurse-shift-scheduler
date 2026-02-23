@@ -1,22 +1,21 @@
 import { useState, useEffect } from 'react';
-import { db, initializeDefaultShiftPatterns } from '../db';
+import { db } from '../db';
 import { ShiftPattern, ShiftPatternFormData } from '../types';
 
 export function useShiftPatterns() {
   const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // シフトパターン一覧を読み込み
+  // 勤務パターンの読み込み
   const loadPatterns = async () => {
     try {
-      // デフォルトパターンを初期化
-      await initializeDefaultShiftPatterns();
-      
-      // 全パターンを取得してソート
-      const allPatterns = await db.shiftPatterns.orderBy('sortOrder').toArray();
+      setLoading(true);
+      console.log('📥 勤務パターンを読み込み中...');
+      const allPatterns = await db.shiftPatterns.toArray();
+      console.log('✅ 読み込み成功:', allPatterns.length, '種類');
       setPatterns(allPatterns);
     } catch (error) {
-      console.error('シフトパターンの読み込みに失敗しました:', error);
+      console.error('❌ 勤務パターンの読み込みに失敗しました:', error);
     } finally {
       setLoading(false);
     }
@@ -26,76 +25,70 @@ export function useShiftPatterns() {
     loadPatterns();
   }, []);
 
-  // シフトパターンを追加
-  const addPattern = async (data: ShiftPatternFormData) => {
+  // 勤務パターンの追加
+  const addPattern = async (data: ShiftPatternFormData): Promise<boolean> => {
     try {
-      const maxOrder = patterns.length > 0 
-        ? Math.max(...patterns.map(p => p.sortOrder)) 
-        : 0;
-
+      console.log('➕ 勤務パターンを追加中...', data);
       const newPattern: ShiftPattern = {
         id: crypto.randomUUID(),
-        ...data,
-        sortOrder: maxOrder + 1,
+        name: data.name,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        color: data.color,
+        requiredStaff: data.requiredStaff,
+        description: data.description || '',
+        isActive: true,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
-
+      
       await db.shiftPatterns.add(newPattern);
+      console.log('✅ 追加成功:', newPattern.name);
+      
+      // 再読み込み
       await loadPatterns();
       return true;
     } catch (error) {
-      console.error('シフトパターンの追加に失敗しました:', error);
+      console.error('❌ 勤務パターンの追加に失敗しました:', error);
       return false;
     }
   };
 
-  // シフトパターンを更新
-  const updatePattern = async (id: string, data: Partial<ShiftPatternFormData>) => {
+  // 勤務パターンの更新
+  const updatePattern = async (id: string, data: Partial<ShiftPatternFormData>): Promise<boolean> => {
     try {
+      console.log('✏️ 勤務パターンを更新中...', id, data);
       await db.shiftPatterns.update(id, {
         ...data,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
-      await loadPatterns();
-      return true;
-    } catch (error) {
-      console.error('シフトパターンの更新に失敗しました:', error);
-      return false;
-    }
-  };
-
-  // シフトパターンを削除
-  const deletePattern = async (id: string) => {
-    try {
-      // このパターンを使用しているシフトがあるかチェック
-      const usedShifts = await db.staffShifts.where('shiftPatternId').equals(id).count();
+      console.log('✅ 更新成功:', id);
       
-      if (usedShifts > 0) {
-        alert(`このシフトパターンは ${usedShifts} 件のシフトで使用されているため削除できません。`);
-        return false;
-      }
-
-      await db.shiftPatterns.delete(id);
+      // 再読み込み
       await loadPatterns();
       return true;
     } catch (error) {
-      console.error('シフトパターンの削除に失敗しました:', error);
+      console.error('❌ 勤務パターンの更新に失敗しました:', error);
       return false;
     }
   };
 
-  // 並び順を変更
-  const reorderPatterns = async (reorderedPatterns: ShiftPattern[]) => {
+  // 勤務パターンの削除
+  const deletePattern = async (id: string): Promise<boolean> => {
     try {
-      const updates = reorderedPatterns.map((pattern, index) => 
-        db.shiftPatterns.update(pattern.id, { sortOrder: index + 1 })
-      );
-      await Promise.all(updates);
+      console.log('🗑️ 勤務パターンを削除中...', id);
+      
+      // データベースから削除
+      await db.shiftPatterns.delete(id);
+      console.log('✅ データベースから削除成功:', id);
+      
+      // 画面を強制的に再読み込み
       await loadPatterns();
+      console.log('✅ 画面を更新しました');
+      
       return true;
     } catch (error) {
-      console.error('並び順の変更に失敗しました:', error);
+      console.error('❌ 勤務パターンの削除に失敗しました:', error);
       return false;
     }
   };
@@ -106,7 +99,6 @@ export function useShiftPatterns() {
     addPattern,
     updatePattern,
     deletePattern,
-    reorderPatterns,
-    reload: loadPatterns
+    reload: loadPatterns,
   };
 }
