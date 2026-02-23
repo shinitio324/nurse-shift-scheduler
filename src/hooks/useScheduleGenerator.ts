@@ -67,11 +67,14 @@ export function useScheduleGenerator() {
       console.log('📊 結果:', generationResult.schedules.length, '件のシフト');
       console.log('⚠️ 違反:', generationResult.violations.length, '件');
 
+      // 重要: state を更新
       setResult(generationResult);
+      console.log('💾 結果を state にセットしました');
+
       return generationResult;
     } catch (error) {
       console.error('❌ スケジュール生成に失敗しました:', error);
-      alert('スケジュール生成に失敗しました。もう一度お試しください。');
+      alert('スケジュール生成に失敗しました。もう一度お試しください。\n\nエラー: ' + (error as Error).message);
       return null;
     } finally {
       setGenerating(false);
@@ -119,7 +122,7 @@ export function useScheduleGenerator() {
       return true;
     } catch (error) {
       console.error('❌ スケジュールの保存に失敗しました:', error);
-      alert('スケジュールの保存に失敗しました。もう一度お試しください。');
+      alert('スケジュールの保存に失敗しました。もう一度お試しください。\n\nエラー: ' + (error as Error).message);
       return false;
     }
   };
@@ -128,6 +131,7 @@ export function useScheduleGenerator() {
    * 結果をクリア
    */
   const clearResult = () => {
+    console.log('🧹 結果をクリアしました');
     setResult(null);
   };
 
