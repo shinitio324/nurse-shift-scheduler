@@ -8,8 +8,8 @@ import { ShiftRequestList } from './components/ShiftRequestList';
 import { ConstraintSettings } from './components/ConstraintSettings';
 import { ScheduleGeneratorForm } from './components/ScheduleGeneratorForm';
 import { SchedulePreview } from './components/SchedulePreview';
-import { StatisticsPanel } from './components/StatisticsPanel';   // ★ Phase 4
-import { ExportPanel } from './components/ExportPanel';           // ★ Phase 5
+import { StatisticsPanel } from './components/StatisticsPanel';
+import { ExportPanel } from './components/ExportPanel';
 import { useStaff } from './hooks/useStaff';
 import { useShiftRequests } from './hooks/useShiftRequests';
 import { ScheduleGenerationResult } from './types';
@@ -17,8 +17,17 @@ import { ScheduleGenerationResult } from './types';
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  const [activeTab,     setActiveTab]     = useState<TabType>('calendar');
-  const [showPreview,   setShowPreview]   = useState(false);
+  // ★ 保存後リロード時に統計タブへ自動遷移するための sessionStorage 復元
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const pending = sessionStorage.getItem('afterSaveTab') as TabType | null;
+    if (pending) {
+      sessionStorage.removeItem('afterSaveTab');
+      return pending;
+    }
+    return 'calendar';
+  });
+
+  const [showPreview,    setShowPreview]    = useState(false);
   const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
 
   const { staff,         loading: staffLoading  } = useStaff();
@@ -39,11 +48,12 @@ export default function App() {
     setShowPreview(true);
   };
 
+  // ★ 保存後は sessionStorage に統計タブを記録してからリロード
   const handleScheduleSaved = () => {
-    console.log('💾 スケジュール保存完了');
+    console.log('💾 スケジュール保存完了 → 統計タブへ遷移');
     setScheduleResult(null);
     setShowPreview(false);
-    setActiveTab('calendar');
+    sessionStorage.setItem('afterSaveTab', 'statistics');
     window.location.reload();
   };
 
@@ -55,6 +65,7 @@ export default function App() {
 
   const renderContent = () => {
     if (showPreview && scheduleResult && activeTab === 'calendar') {
+      console.log('🖼️ プレビュー画面を表示します');
       return (
         <SchedulePreview
           result={scheduleResult}
@@ -87,10 +98,10 @@ export default function App() {
         );
 
       case 'statistics':
-        return <StatisticsPanel />;   // ★ Phase 4
+        return <StatisticsPanel />;
 
       case 'export':
-        return <ExportPanel />;       // ★ Phase 5
+        return <ExportPanel />;
 
       case 'settings':
         return (
@@ -109,7 +120,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* ヘッダー */}
+
+      {/* ── ヘッダー ── */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -142,7 +154,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ナビゲーション */}
+      {/* ── ナビゲーション ── */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1 overflow-x-auto">
@@ -170,12 +182,12 @@ export default function App() {
         </div>
       </nav>
 
-      {/* メインコンテンツ */}
+      {/* ── メインコンテンツ ── */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
 
-      {/* フッター */}
+      {/* ── フッター ── */}
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
@@ -183,9 +195,11 @@ export default function App() {
             Phase 4: 詳細統計 ✅ | Phase 5: エクスポート ✅ |
             スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
             シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+            {showPreview && scheduleResult && ' | プレビュー表示中'}
           </p>
         </div>
       </footer>
+
     </div>
   );
 }
