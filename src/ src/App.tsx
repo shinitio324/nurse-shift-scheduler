@@ -10,20 +10,19 @@ import { ScheduleGeneratorForm } from './components/ScheduleGeneratorForm';
 import { SchedulePreview } from './components/SchedulePreview';
 import { useStaff } from './hooks/useStaff';
 import { useShiftRequests } from './hooks/useShiftRequests';
-import { useScheduleGenerator } from './hooks/useScheduleGenerator';
-import { ScheduleGenerationResult } from './types';
+import { ScheduleGenerationResult } from './types';  // ★追加
 
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('calendar');
   const [showPreview, setShowPreview] = useState(false);
-  // ★ バグ3修正: scheduleResult を App.tsx の独自 state で管理
+
+  // ★ 修正: useScheduleGenerator を削除し、独自 state で result を管理
   const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
 
   const { staff, loading: staffLoading } = useStaff();
   const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
-  const { saveSchedule } = useScheduleGenerator();
 
   const tabs = [
     { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
@@ -34,7 +33,7 @@ export default function App() {
     { id: 'settings' as TabType, label: '設定', icon: Settings },
   ];
 
-  // ★ バグ3修正: ScheduleGeneratorForm から result を直接受け取る
+  // ★ 修正: ScheduleGeneratorForm から result を引数で受け取る
   const handleScheduleGenerated = (result: ScheduleGenerationResult) => {
     console.log('✅ App.tsx: スケジュール生成結果を受信', result.schedules.length, '件');
     setScheduleResult(result);
@@ -56,7 +55,7 @@ export default function App() {
   };
 
   const renderContent = () => {
-    // ★ バグ3修正: scheduleResult を使ってプレビュー表示
+    // ★ 修正: scheduleResult を使ってプレビュー表示
     if (showPreview && scheduleResult && activeTab === 'calendar') {
       console.log('🖼️ プレビュー画面を表示します');
       return (
@@ -115,7 +114,9 @@ export default function App() {
               </div>
             </div>
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">※ より詳細な統計情報は Phase 4 で実装予定です</p>
+              <p className="text-sm text-gray-600">
+                ※ より詳細な統計情報は Phase 4 で実装予定です
+              </p>
             </div>
           </div>
         );
@@ -124,15 +125,26 @@ export default function App() {
         return (
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-4">📥 エクスポート</h2>
-            <p className="text-gray-600 mb-4">スケジュールをPDF、Excel、CSV形式でエクスポートできます。</p>
+            <p className="text-gray-600 mb-4">
+              スケジュールをPDF、Excel、CSV形式でエクスポートできます。
+            </p>
             <div className="space-y-3">
-              <button className="w-full py-3 px-4 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+              <button
+                className="w-full py-3 px-4 bg-red-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+              >
                 📄 PDF形式でエクスポート（Phase 5で実装予定）
               </button>
-              <button className="w-full py-3 px-4 bg-green-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+              <button
+                className="w-full py-3 px-4 bg-green-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+              >
                 📊 Excel形式でエクスポート（Phase 5で実装予定）
               </button>
-              <button className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+              <button
+                className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+              >
                 📋 CSV形式でエクスポート（Phase 5で実装予定）
               </button>
             </div>
@@ -156,11 +168,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* ヘッダー */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">🚀 看護師勤務表システム v2.0</h1>
+              <h1 className="text-2xl font-bold text-gray-900">
+                🚀 看護師勤務表システム v2.0
+              </h1>
               <p className="text-sm text-gray-600 mt-1">
                 Phase 3-3: 自動スケジュール生成機能
                 {showPreview && scheduleResult && (
@@ -186,6 +201,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* ナビゲーション */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1">
@@ -215,16 +231,19 @@ export default function App() {
         </div>
       </nav>
 
+      {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
 
+      {/* フッター */}
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
             看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 |
             IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
             シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+            {showPreview && scheduleResult && ' | プレビュー表示中'}
           </p>
         </div>
       </footer>
