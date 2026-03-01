@@ -8,6 +8,8 @@ import { ShiftRequestList } from './components/ShiftRequestList';
 import { ConstraintSettings } from './components/ConstraintSettings';
 import { ScheduleGeneratorForm } from './components/ScheduleGeneratorForm';
 import { SchedulePreview } from './components/SchedulePreview';
+import { StatisticsPanel } from './components/StatisticsPanel';   // ★ Phase 4
+import { ExportPanel } from './components/ExportPanel';           // ★ Phase 5
 import { useStaff } from './hooks/useStaff';
 import { useShiftRequests } from './hooks/useShiftRequests';
 import { ScheduleGenerationResult } from './types';
@@ -15,20 +17,20 @@ import { ScheduleGenerationResult } from './types';
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('calendar');
-  const [showPreview, setShowPreview] = useState(false);
+  const [activeTab,     setActiveTab]     = useState<TabType>('calendar');
+  const [showPreview,   setShowPreview]   = useState(false);
   const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
 
-  const { staff, loading: staffLoading } = useStaff();
+  const { staff,         loading: staffLoading  } = useStaff();
   const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
 
   const tabs = [
-    { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
-    { id: 'staff' as TabType, label: 'スタッフ管理', icon: Users },
-    { id: 'requests' as TabType, label: 'シフト入力', icon: FileText },
-    { id: 'statistics' as TabType, label: '統計', icon: BarChart3 },
-    { id: 'export' as TabType, label: 'エクスポート', icon: Download },
-    { id: 'settings' as TabType, label: '設定', icon: Settings },
+    { id: 'calendar'   as TabType, label: '勤務表',      icon: Calendar  },
+    { id: 'staff'      as TabType, label: 'スタッフ管理', icon: Users     },
+    { id: 'requests'   as TabType, label: 'シフト入力',   icon: FileText  },
+    { id: 'statistics' as TabType, label: '統計',         icon: BarChart3 },
+    { id: 'export'     as TabType, label: 'エクスポート', icon: Download  },
+    { id: 'settings'   as TabType, label: '設定',         icon: Settings  },
   ];
 
   const handleScheduleGenerated = (result: ScheduleGenerationResult) => {
@@ -53,7 +55,6 @@ export default function App() {
 
   const renderContent = () => {
     if (showPreview && scheduleResult && activeTab === 'calendar') {
-      console.log('🖼️ プレビュー画面を表示します');
       return (
         <SchedulePreview
           result={scheduleResult}
@@ -86,57 +87,10 @@ export default function App() {
         );
 
       case 'statistics':
-        return (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">📊 統計情報</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-600 font-medium mb-2">登録スタッフ数</p>
-                <p className="text-3xl font-bold text-blue-700">
-                  {staffLoading ? '読み込み中...' : `${staff.length}名`}
-                </p>
-              </div>
-              <div className="p-6 bg-green-50 rounded-lg">
-                <p className="text-sm text-green-600 font-medium mb-2">登録済みシフト</p>
-                <p className="text-3xl font-bold text-green-700">
-                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
-                </p>
-              </div>
-              <div className="p-6 bg-purple-50 rounded-lg">
-                <p className="text-sm text-purple-600 font-medium mb-2">シフト希望</p>
-                <p className="text-3xl font-bold text-purple-700">
-                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
-                </p>
-              </div>
-            </div>
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">
-                ※ より詳細な統計情報は Phase 4 で実装予定です
-              </p>
-            </div>
-          </div>
-        );
+        return <StatisticsPanel />;   // ★ Phase 4
 
       case 'export':
-        return (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">📥 エクスポート</h2>
-            <p className="text-gray-600 mb-4">
-              スケジュールをPDF、Excel、CSV形式でエクスポートできます。
-            </p>
-            <div className="space-y-3">
-              <button className="w-full py-3 px-4 bg-red-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                📄 PDF形式でエクスポート（Phase 5で実装予定）
-              </button>
-              <button className="w-full py-3 px-4 bg-green-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                📊 Excel形式でエクスポート（Phase 5で実装予定）
-              </button>
-              <button className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                📋 CSV形式でエクスポート（Phase 5で実装予定）
-              </button>
-            </div>
-          </div>
-        );
+        return <ExportPanel />;       // ★ Phase 5
 
       case 'settings':
         return (
@@ -155,6 +109,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* ヘッダー */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -163,7 +118,7 @@ export default function App() {
                 🚀 看護師勤務表システム v2.0
               </h1>
               <p className="text-sm text-gray-600 mt-1">
-                Phase 3-3: 自動スケジュール生成機能
+                Phase 4: 詳細統計 / Phase 5: エクスポート 実装済み
                 {showPreview && scheduleResult && (
                   <span className="ml-2 text-green-600">（プレビュー表示中）</span>
                 )}
@@ -187,21 +142,20 @@ export default function App() {
         </div>
       </header>
 
+      {/* ナビゲーション */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-1">
-            {tabs.map((tab) => {
+          <div className="flex space-x-1 overflow-x-auto">
+            {tabs.map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => {
                     setActiveTab(tab.id);
-                    if (tab.id !== 'calendar') {
-                      setShowPreview(false);
-                    }
+                    if (tab.id !== 'calendar') setShowPreview(false);
                   }}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-indigo-600 text-indigo-600'
                       : 'border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300'
@@ -216,17 +170,19 @@ export default function App() {
         </div>
       </nav>
 
+      {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
 
+      {/* フッター */}
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
-            看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 |
-            IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
+            看護師勤務表システム v2.0 |
+            Phase 4: 詳細統計 ✅ | Phase 5: エクスポート ✅ |
+            スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
             シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
-            {showPreview && scheduleResult && ' | プレビュー表示中'}
           </p>
         </div>
       </footer>
