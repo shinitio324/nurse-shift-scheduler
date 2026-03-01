@@ -9,7 +9,7 @@ export function ShiftPatternList() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingPattern, setEditingPattern] = useState<ShiftPattern | null>(null);
 
-  // ★ 修正: Promise<boolean> を返すように変更
+  // ★ バグ1修正: Promise<boolean> を返すように変更
   const handleSubmit = async (data: ShiftPatternFormData): Promise<boolean> => {
     try {
       let success: boolean;
@@ -35,9 +35,12 @@ export function ShiftPatternList() {
   };
 
   const handleDelete = async (pattern: ShiftPattern) => {
+    console.log('削除ボタンがクリックされました:', pattern.name);
     const confirmed = window.confirm(`勤務パターン「${pattern.name}」を削除してもよろしいですか？`);
+    console.log('削除確認結果:', confirmed);
     if (!confirmed) return;
     try {
+      console.log('削除処理を開始します:', pattern.id);
       await deletePattern(pattern.id);
     } catch (error) {
       console.error('削除処理で例外が発生しました:', error);
@@ -94,4 +97,90 @@ export function ShiftPatternList() {
           {sortedPatterns.map((pattern) => (
             <div
               key={pattern.id}
-              className="bg-white rounded-lg shadow-md p-4 border-l-4 hover:shadow-lg transition-shadow"<span class="cursor">█</span>
+              className="bg-white rounded-lg shadow-md p-4 border-l-4 hover:shadow-lg transition-shadow"
+              style={{ borderLeftColor: pattern.color }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div
+                    className="w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-bold shadow-md"
+                    style={{ backgroundColor: pattern.color }}
+                  >
+                    {pattern.shortName || pattern.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-800">{pattern.name}</h4>
+                    <p className="text-xs text-gray-500">{pattern.isWorkday ? '勤務' : '休暇'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => handleEdit(pattern)}
+                    className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                    title="編集"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(pattern); }}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="削除"
+                    type="button"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              {pattern.isWorkday && (
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">勤務時間:</span>
+                    <span className="font-semibold text-gray-800">
+                      {pattern.startTime} - {pattern.endTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">必要人数:</span>
+                    <span className="font-semibold text-indigo-600">{pattern.requiredStaff}名</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {patterns.length > 0 && (
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg shadow-md p-6">
+          <h4 className="font-semibold text-gray-800 mb-4">統計情報</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">登録済みパターン</p>
+              <p className="text-3xl font-bold text-indigo-600">{patterns.length}</p>
+              <p className="text-xs text-gray-500 mt-1">種類</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">勤務パターン</p>
+              <p className="text-3xl font-bold text-green-600">{workPatterns.length}</p>
+              <p className="text-xs text-gray-500 mt-1">種類</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-gray-600 mb-1">総必要人数</p>
+              <p className="text-3xl font-bold text-orange-600">{totalRequired}</p>
+              <p className="text-xs text-gray-500 mt-1">名</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isFormOpen && (
+        <ShiftPatternForm
+          onSubmit={handleSubmit}
+          onClose={handleCloseForm}
+          initialData={editingPattern || undefined}
+          isEdit={!!editingPattern}
+        />
+      )}
+    </div>
+  );
+}
