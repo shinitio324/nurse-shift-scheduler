@@ -31,7 +31,7 @@ export class ScheduleGenerator {
     params: ScheduleGenerationParams
   ) {
     this.staff = staff;
-    this.patterns = patterns.filter(p => p.isActive);
+    this.patterns = patterns.filter(p => p.isWorkday !== false);
     this.constraints = constraints
       .filter(c => c.isActive && params.constraintIds.includes(c.id))
       .sort((a, b) => b.priority - a.priority);
