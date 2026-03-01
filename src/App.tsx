@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
 import { StaffList } from './components/StaffList';
 import { CalendarView } from './components/CalendarView';
@@ -10,35 +10,17 @@ import { ScheduleGeneratorForm } from './components/ScheduleGeneratorForm';
 import { SchedulePreview } from './components/SchedulePreview';
 import { useStaff } from './hooks/useStaff';
 import { useShiftRequests } from './hooks/useShiftRequests';
-import { useScheduleGenerator } from './hooks/useScheduleGenerator';
+import { ScheduleGenerationResult } from './types';
 
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('calendar');
   const [showPreview, setShowPreview] = useState(false);
+  const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
+
   const { staff, loading: staffLoading } = useStaff();
   const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
-  const { result, clearResult } = useScheduleGenerator();
-
-  // デバッグ用ログ
-  useEffect(() => {
-    console.log('📊 App.tsx - データ状態:');
-    console.log('  スタッフ読み込み中:', staffLoading);
-    console.log('  スタッフ数:', staff.length);
-    console.log('  シフト読み込み中:', shiftsLoading);
-    console.log('  シフト数:', shiftRequests.length);
-    console.log('  生成結果:', result ? 'あり' : 'なし');
-    console.log('  showPreview:', showPreview);
-  }, [staff, shiftRequests, staffLoading, shiftsLoading, result, showPreview]);
-
-  // result が更新されたら showPreview を true にする
-  useEffect(() => {
-    if (result) {
-      console.log('✅ 生成結果を検出しました。プレビュー画面を表示します。');
-      setShowPreview(true);
-    }
-  }, [result]);
 
   const tabs = [
     { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
@@ -49,33 +31,32 @@ export default function App() {
     { id: 'settings' as TabType, label: '設定', icon: Settings },
   ];
 
-  const handleScheduleGenerated = () => {
-    console.log('📋 スケジュール生成完了コールバック');
+  const handleScheduleGenerated = (result: ScheduleGenerationResult) => {
+    console.log('✅ App.tsx: 生成結果を受信', result.schedules.length, '件');
+    setScheduleResult(result);
     setShowPreview(true);
   };
 
   const handleScheduleSaved = () => {
     console.log('💾 スケジュール保存完了');
-    clearResult();
+    setScheduleResult(null);
     setShowPreview(false);
     setActiveTab('calendar');
-    // シフトデータを再読み込み
     window.location.reload();
   };
 
   const handleScheduleCancelled = () => {
     console.log('❌ スケジュール生成をキャンセル');
-    clearResult();
+    setScheduleResult(null);
     setShowPreview(false);
   };
 
   const renderContent = () => {
-    // スケジュール生成結果がある場合はプレビューを表示
-    if (showPreview && result && activeTab === 'calendar') {
+    if (showPreview && scheduleResult && activeTab === 'calendar') {
       console.log('🖼️ プレビュー画面を表示します');
       return (
         <SchedulePreview
-          result={result}
+          result={scheduleResult}
           onSave={handleScheduleSaved}
           onCancel={handleScheduleCancelled}
         />
@@ -144,13 +125,13 @@ export default function App() {
               スケジュールをPDF、Excel、CSV形式でエクスポートできます。
             </p>
             <div className="space-y-3">
-              <button className="w-full py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              <button className="w-full py-3 px-4 bg-red-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
                 📄 PDF形式でエクスポート（Phase 5で実装予定）
               </button>
-              <button className="w-full py-3 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              <button className="w-full py-3 px-4 bg-green-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
                 📊 Excel形式でエクスポート（Phase 5で実装予定）
               </button>
-              <button className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              <button className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
                 📋 CSV形式でエクスポート（Phase 5で実装予定）
               </button>
             </div>
@@ -174,7 +155,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* ヘッダー */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -184,7 +164,9 @@ export default function App() {
               </h1>
               <p className="text-sm text-gray-600 mt-1">
                 Phase 3-3: 自動スケジュール生成機能
-                {showPreview && result && <span className="ml-2 text-green-600">（プレビュー表示中）</span>}
+                {showPreview && scheduleResult && (
+                  <span className="ml-2 text-green-600">（プレビュー表示中）</span>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -205,7 +187,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* ナビゲーション */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1">
@@ -235,19 +216,17 @@ export default function App() {
         </div>
       </nav>
 
-      {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
 
-      {/* フッター */}
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
-            看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 | 
-            IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} | 
+            看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 |
+            IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
             シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
-            {showPreview && result && ' | プレビュー表示中'}
+            {showPreview && scheduleResult && ' | プレビュー表示中'}
           </p>
         </div>
       </footer>
