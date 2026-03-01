@@ -1,186 +1,233 @@
 import { useState } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
+import { StaffList } from './components/StaffList';
+import { CalendarView } from './components/CalendarView';
+import { SettingsPanel } from './components/SettingsPanel';
+import { ShiftRequestCalendar } from './components/ShiftRequestCalendar';
+import { ShiftRequestList } from './components/ShiftRequestList';
+import { ConstraintSettings } from './components/ConstraintSettings';
+import { ScheduleGeneratorForm } from './components/ScheduleGeneratorForm';
+import { SchedulePreview } from './components/SchedulePreview';
+import { useStaff } from './hooks/useStaff';
+import { useShiftRequests } from './hooks/useShiftRequests';
+import { useScheduleGenerator } from './hooks/useScheduleGenerator';
+import { ScheduleGenerationResult } from './types';
+
+type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('calendar');
+  const [activeTab, setActiveTab] = useState<TabType>('calendar');
+  const [showPreview, setShowPreview] = useState(false);
+  // ★ バグ3修正: scheduleResult を App.tsx の独自 state で管理
+  const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
+
+  const { staff, loading: staffLoading } = useStaff();
+  const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
+  const { saveSchedule } = useScheduleGenerator();
+
+  const tabs = [
+    { id: 'calendar' as TabType, label: '勤務表', icon: Calendar },
+    { id: 'staff' as TabType, label: 'スタッフ管理', icon: Users },
+    { id: 'requests' as TabType, label: 'シフト入力', icon: FileText },
+    { id: 'statistics' as TabType, label: '統計', icon: BarChart3 },
+    { id: 'export' as TabType, label: 'エクスポート', icon: Download },
+    { id: 'settings' as TabType, label: '設定', icon: Settings },
+  ];
+
+  // ★ バグ3修正: ScheduleGeneratorForm から result を直接受け取る
+  const handleScheduleGenerated = (result: ScheduleGenerationResult) => {
+    console.log('✅ App.tsx: スケジュール生成結果を受信', result.schedules.length, '件');
+    setScheduleResult(result);
+    setShowPreview(true);
+  };
+
+  const handleScheduleSaved = () => {
+    console.log('💾 スケジュール保存完了');
+    setScheduleResult(null);
+    setShowPreview(false);
+    setActiveTab('calendar');
+    window.location.reload();
+  };
+
+  const handleScheduleCancelled = () => {
+    console.log('❌ スケジュール生成をキャンセル');
+    setScheduleResult(null);
+    setShowPreview(false);
+  };
+
+  const renderContent = () => {
+    // ★ バグ3修正: scheduleResult を使ってプレビュー表示
+    if (showPreview && scheduleResult && activeTab === 'calendar') {
+      console.log('🖼️ プレビュー画面を表示します');
+      return (
+        <SchedulePreview
+          result={scheduleResult}
+          onSave={handleScheduleSaved}
+          onCancel={handleScheduleCancelled}
+        />
+      );
+    }
+
+    switch (activeTab) {
+      case 'calendar':
+        return (
+          <div className="space-y-6">
+            <ScheduleGeneratorForm onGenerated={handleScheduleGenerated} />
+            <CalendarView />
+          </div>
+        );
+
+      case 'staff':
+        return <StaffList />;
+
+      case 'requests':
+        return (
+          <div className="space-y-6">
+            <ShiftRequestCalendar />
+            <div id="shift-request-list">
+              <ShiftRequestList />
+            </div>
+          </div>
+        );
+
+      case 'statistics':
+        return (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">📊 統計情報</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-6 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-600 font-medium mb-2">登録スタッフ数</p>
+                <p className="text-3xl font-bold text-blue-700">
+                  {staffLoading ? '読み込み中...' : `${staff.length}名`}
+                </p>
+              </div>
+              <div className="p-6 bg-green-50 rounded-lg">
+                <p className="text-sm text-green-600 font-medium mb-2">登録済みシフト</p>
+                <p className="text-3xl font-bold text-green-700">
+                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
+                </p>
+              </div>
+              <div className="p-6 bg-purple-50 rounded-lg">
+                <p className="text-sm text-purple-600 font-medium mb-2">シフト希望</p>
+                <p className="text-3xl font-bold text-purple-700">
+                  {shiftsLoading ? '読み込み中...' : `${shiftRequests.length}件`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600">※ より詳細な統計情報は Phase 4 で実装予定です</p>
+            </div>
+          </div>
+        );
+
+      case 'export':
+        return (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">📥 エクスポート</h2>
+            <p className="text-gray-600 mb-4">スケジュールをPDF、Excel、CSV形式でエクスポートできます。</p>
+            <div className="space-y-3">
+              <button className="w-full py-3 px-4 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+                📄 PDF形式でエクスポート（Phase 5で実装予定）
+              </button>
+              <button className="w-full py-3 px-4 bg-green-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+                📊 Excel形式でエクスポート（Phase 5で実装予定）
+              </button>
+              <button className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled>
+                📋 CSV形式でエクスポート（Phase 5で実装予定）
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'settings':
+        return (
+          <div className="space-y-6">
+            <SettingsPanel />
+            <div id="constraint-settings">
+              <ConstraintSettings />
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* ヘッダー */}
-      <header className="bg-white shadow-md">
+      <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Calendar className="h-8 w-8 text-blue-600" />
-              <h1 className="text-2xl font-bold text-gray-900">看護師勤務表システム</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">🚀 看護師勤務表システム v2.0</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Phase 3-3: 自動スケジュール生成機能
+                {showPreview && scheduleResult && (
+                  <span className="ml-2 text-green-600">（プレビュー表示中）</span>
+                )}
+              </p>
             </div>
-            <div className="text-sm text-gray-600">
-              オンライン版 v1.0.0
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm text-gray-600">登録スタッフ</p>
+                <p className="text-lg font-bold text-indigo-600">
+                  {staffLoading ? '...' : `${staff.length}名`}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">登録シフト</p>
+                <p className="text-lg font-bold text-green-600">
+                  {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* ナビゲーション */}
-      <nav className="bg-white border-b border-gray-200 shadow-sm">
+      <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1">
-            {[
-              { id: 'calendar', label: '勤務表', icon: Calendar },
-              { id: 'staff', label: 'スタッフ管理', icon: Users },
-              { id: 'requests', label: 'シフト入力', icon: FileText },
-              { id: 'statistics', label: '統計', icon: BarChart3 },
-              { id: 'export', label: 'エクスポート', icon: Download },
-              { id: 'settings', label: '設定', icon: Settings },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-                }`}
-              >
-                <tab.icon className="h-5 w-5" />
-                <span>{tab.label}</span>
-              </button>
-            ))}
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    if (tab.id !== 'calendar') {
+                      setShowPreview(false);
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </nav>
 
-      {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          {activeTab === 'calendar' && (
-            <div className="text-center">
-              <Calendar className="h-24 w-24 text-blue-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">勤務表カレンダー</h2>
-              <p className="text-gray-600 mb-8">
-                ここに月間カレンダーが表示されます。<br />
-                ドラッグ＆ドロップでシフトを編集できます。
-              </p>
-              <button className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
-                自動生成を実行
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'staff' && (
-            <div className="text-center">
-              <Users className="h-24 w-24 text-green-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">スタッフ管理</h2>
-              <p className="text-gray-600 mb-8">
-                スタッフ情報を登録・編集できます。<br />
-                スキル、資格、勤務形態などを設定します。
-              </p>
-              <button className="bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-colors">
-                新規スタッフ登録
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'requests' && (
-            <div className="text-center">
-              <FileText className="h-24 w-24 text-purple-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">シフト希望入力</h2>
-              <p className="text-gray-600 mb-8">
-                スタッフのシフト希望を入力できます。<br />
-                希望休、希望シフトを100%反映します。
-              </p>
-              <button className="bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors">
-                希望を入力
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'statistics' && (
-            <div className="text-center">
-              <BarChart3 className="h-24 w-24 text-orange-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">統計・分析</h2>
-              <p className="text-gray-600 mb-8">
-                勤務実績の統計データを表示します。<br />
-                勤務時間、夜勤回数、休日数などをグラフで確認できます。
-              </p>
-            </div>
-          )}
-
-          {activeTab === 'export' && (
-            <div className="text-center">
-              <Download className="h-24 w-24 text-red-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">エクスポート</h2>
-              <p className="text-gray-600 mb-8">
-                勤務表をPDFまたはExcel形式でダウンロードできます。
-              </p>
-              <div className="flex justify-center space-x-4">
-                <button className="bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 transition-colors">
-                  PDF出力
-                </button>
-                <button className="bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-colors">
-                  Excel出力
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'settings' && (
-            <div className="text-center">
-              <Settings className="h-24 w-24 text-gray-600 mx-auto mb-4" />
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">システム設定</h2>
-              <p className="text-gray-600 mb-8">
-                制約条件、シフトパターン、労働基準などを設定できます。
-              </p>
-              <button className="bg-gray-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-gray-700 transition-colors">
-                設定を編集
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* 機能紹介カード */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center space-x-3 mb-3">
-              <Calendar className="h-6 w-6 text-blue-600" />
-              <h3 className="text-lg font-semibold text-gray-900">自動生成</h3>
-            </div>
-            <p className="text-gray-600 text-sm">
-              ワンクリックで制約を満たす勤務表を5〜15秒で自動生成します。
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center space-x-3 mb-3">
-              <Users className="h-6 w-6 text-green-600" />
-              <h3 className="text-lg font-semibold text-gray-900">希望100%反映</h3>
-            </div>
-            <p className="text-gray-600 text-sm">
-              スタッフの希望休・希望シフトを優先的に反映します。
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center space-x-3 mb-3">
-              <Download className="h-6 w-6 text-red-600" />
-              <h3 className="text-lg font-semibold text-gray-900">PDF/Excel出力</h3>
-            </div>
-            <p className="text-gray-600 text-sm">
-              完成した勤務表をPDFまたはExcel形式でダウンロードできます。
-            </p>
-          </div>
-        </div>
-
-        {/* フッター情報 */}
-        <div className="mt-12 text-center text-sm text-gray-600">
-          <p>
-            このシステムは完全無料・オープンソースです。<br />
-            商用利用可能 | データは全てブラウザに保存されます（サーバーには送信されません）
-          </p>
-          <p className="mt-2">
-            © 2026 Nurse Scheduler Team | MIT License
-          </p>
-        </div>
+        {renderContent()}
       </main>
+
+      <footer className="bg-white border-t border-gray-200 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <p className="text-center text-sm text-gray-600">
+            看護師勤務表システム v2.0 | Phase 3-3: 自動スケジュール生成機能 |
+            IndexedDB使用 | スタッフ: {staffLoading ? '...' : `${staff.length}名`} |
+            シフト: {shiftsLoading ? '...' : `${shiftRequests.length}件`}
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
