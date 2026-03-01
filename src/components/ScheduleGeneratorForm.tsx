@@ -1,41 +1,29 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Settings, Zap, Play } from 'lucide-react';
 import { db } from '../db';
-import { ScheduleConstraints, ScheduleGenerationParams } from '../types';
+import { ScheduleConstraints, ScheduleGenerationParams, ScheduleGenerationResult } from '../types';
 import { useScheduleGenerator } from '../hooks/useScheduleGenerator';
 
 interface Props {
-  onGenerated: () => void;
+  // ★ バグ3修正: result を直接渡せるよう型を変更
+  onGenerated: (result: ScheduleGenerationResult) => void;
 }
 
 export function ScheduleGeneratorForm({ onGenerated }: Props) {
   const currentDate = new Date();
   const [targetYear, setTargetYear] = useState(currentDate.getFullYear());
   const [targetMonth, setTargetMonth] = useState(currentDate.getMonth() + 1);
-  
   const [constraints, setConstraints] = useState<ScheduleConstraints[]>([]);
   const [selectedConstraints, setSelectedConstraints] = useState<string[]>([]);
-  
   const [prioritizeRequests, setPrioritizeRequests] = useState(true);
   const [balanceWorkload, setBalanceWorkload] = useState(true);
   const [balanceNightShifts, setBalanceNightShifts] = useState(true);
 
   const { generating, generateSchedule, result } = useScheduleGenerator();
 
-  // 制約条件を読み込み
   useEffect(() => {
     loadConstraints();
   }, []);
-
-  // result が更新されたら onGenerated を呼ぶ
-  useEffect(() => {
-    if (result) {
-      console.log('✅ ScheduleGeneratorForm: 生成結果を検出しました');
-      console.log('📊 生成されたシフト:', result.schedules.length, '件');
-      console.log('🔔 onGenerated コールバックを呼び出します');
-      onGenerated();
-    }
-  }, [result, onGenerated]);
 
   const loadConstraints = async () => {
     try {
@@ -43,12 +31,8 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
       const activeConstraints = allConstraints
         .filter(c => c.isActive)
         .sort((a, b) => b.priority - a.priority);
-      
       setConstraints(activeConstraints);
-      
-      // デフォルトで全ての有効な制約を選択
       setSelectedConstraints(activeConstraints.map(c => c.id));
-      
       console.log('✅ 制約条件を読み込みました:', activeConstraints.length, '種類');
     } catch (error) {
       console.error('❌ 制約条件の読み込みに失敗しました:', error);
@@ -64,11 +48,6 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
   };
 
   const handleGenerate = async () => {
-    if (selectedConstraints.length === 0) {
-      alert('少なくとも1つの制約条件を選択してください。');
-      return;
-    }
-
     const params: ScheduleGenerationParams = {
       targetYear,
       targetMonth,
@@ -79,17 +58,12 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
     };
 
     console.log('🚀 スケジュール生成を開始します...', params);
-
     const generationResult = await generateSchedule(params);
 
     if (generationResult) {
-      console.log('✅ スケジュール生成が完了しました！');
-      console.log('📊 結果:', generationResult.schedules.length, '件のシフト');
-      console.log('⚠️ 違反:', generationResult.violations.length, '件');
-      
-      // 明示的に onGenerated を呼ぶ（念のため）
-      console.log('🔔 onGenerated コールバックを直接呼び出します');
-      onGenerated();
+      console.log('✅ 生成完了。プレビューに渡します。', generationResult.schedules.length, '件');
+      // ★ バグ3修正: result を直接 onGenerated に渡す
+      onGenerated(generationResult);
     }
   };
 
@@ -138,7 +112,7 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
         </div>
       </div>
 
-      {/* 制約条件の選択 */}
+      {/* 制約条件 */}
       <div className="mb-6">
         <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
           <Settings className="w-4 h-4" />
@@ -171,18 +145,18 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
             </label>
           ))}
           {constraints.length === 0 && (
-            <p className="text-sm text-gray-500 text-center py-4">
-              有効な制約条件がありません。設定タブで制約条件を追加してください。
-            </p>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-700">
+                有効な制約条件がありません。制約なしでも生成できます（設定タブから追加可能）。
+              </p>
+            </div>
           )}
         </div>
       </div>
 
       {/* 生成オプション */}
       <div className="mb-6">
-        <label className="text-sm font-medium text-gray-700 mb-2 block">
-          生成オプション
-        </label>
+        <label className="text-sm font-medium text-gray-700 mb-2 block">生成オプション</label>
         <div className="space-y-2">
           <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
             <input
@@ -197,7 +171,6 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
               <p className="text-sm text-gray-600">スタッフが登録したシフト希望を優先的に反映します</p>
             </div>
           </label>
-
           <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
             <input
               type="checkbox"
@@ -211,7 +184,6 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
               <p className="text-sm text-gray-600">スタッフ間の勤務日数を均等に配分します</p>
             </div>
           </label>
-
           <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
             <input
               type="checkbox"
@@ -231,7 +203,7 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
       {/* 生成ボタン */}
       <button
         onClick={handleGenerate}
-        disabled={generating || selectedConstraints.length === 0}
+        disabled={generating}
         className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium rounded-lg hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {generating ? (
@@ -255,15 +227,12 @@ export function ScheduleGeneratorForm({ onGenerated }: Props) {
         </div>
       )}
 
-      {/* デバッグ情報 */}
       {result && (
         <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
           <p className="text-sm text-green-800 font-medium">
             ✅ 生成完了: {result.schedules.length}件のシフトを生成しました
           </p>
-          <p className="text-xs text-green-700 mt-1">
-            制約違反: {result.violations.length}件
-          </p>
+          <p className="text-xs text-green-700 mt-1">制約違反: {result.violations.length}件</p>
         </div>
       )}
     </div>
