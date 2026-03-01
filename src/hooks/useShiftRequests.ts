@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../db';
-import { Shift, ShiftRequest, ShiftRequestFormData, Staff } from '../types';
+import { Shift, ShiftRequest, ShiftRequestFormData, Staff } from '../types'; // ★ ShiftType は使わないので削除済み
 
 export function useShiftRequests() {
   const [shiftRequests, setShiftRequests] = useState<ShiftRequest[]>([]);
@@ -12,28 +12,25 @@ export function useShiftRequests() {
   const loadShiftRequests = async () => {
     try {
       setLoading(true);
-      
-      // シフトデータを取得
+
       const shifts = await db.shifts.toArray();
-      
-      // スタッフ情報を結合
       const staff = await db.staff.toArray();
       const staffMap = new Map<string, Staff>();
       staff.forEach(s => staffMap.set(s.id, s));
-      
-      // ShiftRequest型に変換（スタッフ名を追加）
+
+      // ★ ShiftRequest型に変換（スタッフ名を追加）
       const requests: ShiftRequest[] = shifts.map(shift => ({
         ...shift,
         staffName: staffMap.get(shift.staffId)?.name || '不明なスタッフ',
         status: 'pending' as const,
         requestedAt: shift.createdAt,
       }));
-      
+
       // 日付順にソート（新しい順）
-      requests.sort((a, b) => 
+      requests.sort((a, b) =>
         new Date(b.date).getTime() - new Date(a.date).getTime()
       );
-      
+
       setShiftRequests(requests);
     } catch (error) {
       console.error('シフトリクエストの読み込みに失敗しました:', error);
@@ -42,9 +39,6 @@ export function useShiftRequests() {
     }
   };
 
-  /**
-   * 初期読み込み
-   */
   useEffect(() => {
     loadShiftRequests();
   }, []);
@@ -54,31 +48,30 @@ export function useShiftRequests() {
    */
   const addShiftRequest = async (data: ShiftRequestFormData): Promise<boolean> => {
     try {
-      // 重複チェック（修正版）
+      // 重複チェック
       const existing = await db.shifts
         .where('staffId')
         .equals(data.staffId)
         .and(shift => shift.date === data.date)
         .first();
-      
+
       if (existing) {
         console.warn('このスタッフは既にこの日のシフトが登録されています。');
         return false;
       }
 
-      // 新しいシフトを作成
+      // ★ shiftType は string として扱う（カスタムパターン対応）
       const newShift: Shift = {
         id: crypto.randomUUID(),
         staffId: data.staffId,
         date: data.date,
-        shiftType: data.shiftType,
+        shiftType: data.shiftType as string, // ★ as string を明示（types.ts修正前の互換性のため）
         createdAt: new Date(),
         updatedAt: new Date(),
       };
 
       await db.shifts.add(newShift);
       await loadShiftRequests();
-      
       console.log('シフトリクエストを追加しました:', newShift);
       return true;
     } catch (error) {
@@ -99,9 +92,7 @@ export function useShiftRequests() {
         ...data,
         updatedAt: new Date(),
       });
-      
       await loadShiftRequests();
-      
       console.log('シフトリクエストを更新しました:', id);
       return true;
     } catch (error) {
@@ -117,7 +108,6 @@ export function useShiftRequests() {
     try {
       await db.shifts.delete(id);
       await loadShiftRequests();
-      
       console.log('シフトリクエストを削除しました:', id);
       return true;
     } catch (error) {
@@ -146,7 +136,6 @@ export function useShiftRequests() {
   const getShiftRequestsByMonth = (year: number, month: number): ShiftRequest[] => {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
-    
     return shiftRequests.filter(req => {
       const reqDate = new Date(req.date);
       return reqDate >= startDate && reqDate <= endDate;
@@ -161,8 +150,7 @@ export function useShiftRequests() {
     year: number,
     month: number
   ): ShiftRequest[] => {
-    const monthRequests = getShiftRequestsByMonth(year, month);
-    return monthRequests.filter(req => req.staffId === staffId);
+    return getShiftRequestsByMonth(year, month).filter(req => req.staffId === staffId);
   };
 
   /**
@@ -170,14 +158,12 @@ export function useShiftRequests() {
    */
   const getMonthlyStats = (year: number, month: number) => {
     const monthRequests = getShiftRequestsByMonth(year, month);
-    
-    // 勤務タイプ別カウント
+
     const shiftTypeCounts: Record<string, number> = {};
     monthRequests.forEach(req => {
       shiftTypeCounts[req.shiftType] = (shiftTypeCounts[req.shiftType] || 0) + 1;
     });
 
-    // スタッフ別カウント
     const staffCounts: Record<string, number> = {};
     monthRequests.forEach(req => {
       const name = req.staffName || '不明';
@@ -202,14 +188,13 @@ export function useShiftRequests() {
         id: crypto.randomUUID(),
         staffId: data.staffId,
         date: data.date,
-        shiftType: data.shiftType,
+        shiftType: data.shiftType as string, // ★ as string を明示
         createdAt: new Date(),
         updatedAt: new Date(),
       }));
 
       await db.shifts.bulkAdd(newShifts);
       await loadShiftRequests();
-      
       console.log(`${newShifts.length}件のシフトリクエストを一括追加しました`);
       return true;
     } catch (error) {
@@ -226,14 +211,12 @@ export function useShiftRequests() {
     endDate: string
   ): Promise<boolean> => {
     try {
-      const toDelete = shiftRequests.filter(req => 
-        req.date >= startDate && req.date <= endDate
+      const toDelete = shiftRequests.filter(
+        req => req.date >= startDate && req.date <= endDate
       );
-      
       const ids = toDelete.map(req => req.id);
       await db.shifts.bulkDelete(ids);
       await loadShiftRequests();
-      
       console.log(`${ids.length}件のシフトリクエストを削除しました`);
       return true;
     } catch (error) {
@@ -253,10 +236,8 @@ export function useShiftRequests() {
     try {
       const toDelete = getShiftRequestsByStaffAndMonth(staffId, year, month);
       const ids = toDelete.map(req => req.id);
-      
       await db.shifts.bulkDelete(ids);
       await loadShiftRequests();
-      
       console.log(`${ids.length}件のシフトリクエストをクリアしました`);
       return true;
     } catch (error) {
