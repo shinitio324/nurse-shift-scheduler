@@ -1,11 +1,9 @@
-// ★ 修正: useState/useEffect/useCallback → useLiveQuery に完全置き換え
-// useLiveQuery は IndexedDB の変更を自動検知してリアクティブに再計算する
 import { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks'; // ★ すでにインストール済み
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { ShiftPattern } from '../types';
 
-// ========== 公開型定義（変更なし）==========
+// ========== 公開型定義 ==========
 
 export interface StaffWorkload {
   staffId: string;
@@ -44,7 +42,7 @@ export interface StatisticsData {
   shiftTypeDistribution: ShiftTypeDistribution[];
 }
 
-// ========== ヘルパー関数（変更なし）==========
+// ========== ヘルパー関数 ==========
 
 function isNightShiftPattern(pattern: ShiftPattern): boolean {
   if (!pattern.isWorkday) return false;
@@ -62,18 +60,17 @@ function calculateWorkHours(pattern: ShiftPattern): number {
   return minutes / 60;
 }
 
-// ========== フック本体（★ useLiveQuery に置き換え）==========
+// ========== フック本体 ==========
 
 export function useStatistics(year: number, month: number) {
-  // ★ 手動リフレッシュ用カウンター（「更新」ボタン押下時に強制再実行）
+  // 「更新」ボタン押下時に強制再実行するためのカウンター
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const mm        = String(month).padStart(2, '0');
   const startDate = `${year}-${mm}-01`;
   const endDate   = `${year}-${mm}-31`;
 
-  // ★★★ useLiveQuery: IndexedDB (db.shifts / db.staff / db.shiftPatterns) の
-  //       変更を自動検知し、スケジュール保存直後に統計を即時更新する
+  // useLiveQuery: db.shifts / db.staff / db.shiftPatterns の変更を自動検知して即時再計算
   const queryResult = useLiveQuery<StatisticsData | null>(
     async () => {
       try {
@@ -90,13 +87,13 @@ export function useStatistics(year: number, month: number) {
         // ---- スタッフ別集計 ----
         const workloadMap = new Map<string, StaffWorkload>(
           allStaff.map(s => [s.id, {
-            staffId: s.id,
-            staffName: s.name,
-            position: s.position,
-            totalShifts: 0,
-            workDays: 0,
-            restDays: 0,
-            nightShifts: 0,
+            staffId:        s.id,
+            staffName:      s.name,
+            position:       s.position,
+            totalShifts:    0,
+            workDays:       0,
+            restDays:       0,
+            nightShifts:    0,
             totalWorkHours: 0,
           }])
         );
@@ -128,3 +125,69 @@ export function useStatistics(year: number, month: number) {
             existing.count++;
           } else {
             shiftTypeMap.set(shift.shiftType, { count: 1, pattern });
+          }
+        });
+
+        // ---- 集計結果の整形 ----
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        const staffWorkload = Array.from(workloadMap.values())
+          .filter(s => s.totalShifts > 0)
+          .sort((a, b) => b.totalShifts - a.totalShifts);
+
+        const shiftTypeDistribution: ShiftTypeDistribution[] = Array.from(shiftTypeMap.entries())
+          .map(([shiftType, { count, pattern }]) => ({
+            shiftType,
+            shortName:     pattern?.shortName    ?? shiftType,
+            color:         pattern?.color        ?? '#6B7280',
+            count,
+            requiredStaff: pattern?.requiredStaff ?? 0,
+            avgPerDay:     Math.round((count / daysInMonth) * 10) / 10,
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        const activeStaff      = staffWorkload.length;
+        const totalWorkDays    = staffWorkload.reduce((s, w) => s + w.workDays,       0);
+        const totalNightShifts = staffWorkload.reduce((s, w) => s + w.nightShifts,    0);
+        const totalWorkHours   = staffWorkload.reduce((s, w) => s + w.totalWorkHours, 0);
+
+        const result: StatisticsData = {
+          year,
+          month,
+          summary: {
+            totalShifts:            monthShifts.length,
+            registeredStaff:        allStaff.length,
+            activeStaff,
+            avgWorkDaysPerStaff:    activeStaff > 0
+              ? Math.round((totalWorkDays    / activeStaff) * 10) / 10 : 0,
+            avgNightShiftsPerStaff: activeStaff > 0
+              ? Math.round((totalNightShifts / activeStaff) * 10) / 10 : 0,
+            avgWorkHoursPerStaff:   activeStaff > 0
+              ? Math.round((totalWorkHours   / activeStaff) * 10) / 10 : 0,
+          },
+          staffWorkload,
+          shiftTypeDistribution,
+        };
+
+        console.log('📊 統計データを更新しました:', monthShifts.length, '件');
+        return result;
+
+      } catch (e) {
+        console.error('統計データの読み込みに失敗しました:', e);
+        return null;
+      }
+    },
+    [year, month, refreshCounter] // year/month変更 or 「更新」ボタンで再実行
+  );
+
+  // useLiveQuery の戻り値: undefined = ローディング中, それ以外 = データ
+  const loading = queryResult === undefined;
+  const data    = loading ? null : queryResult;
+
+  return {
+    data,
+    loading,
+    error: null,
+    reload: () => setRefreshCounter(c => c + 1), // 「更新」ボタン用
+  };
+}
