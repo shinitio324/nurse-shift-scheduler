@@ -1,7 +1,7 @@
 {
   "name": "nurse-shift-scheduler",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
@@ -17,7 +17,9 @@
     "react-dom": "^18.2.0",
     "lucide-react": "^0.344.0",
     "dexie": "^3.2.4",
-    "dexie-react-hooks": "^1.1.7"
+    "dexie-react-hooks": "^1.1.7",
+    "recharts": "^2.12.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",
