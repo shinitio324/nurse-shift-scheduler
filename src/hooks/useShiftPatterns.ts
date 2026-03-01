@@ -9,9 +9,11 @@ export function useShiftPatterns() {
   const loadPatterns = async () => {
     try {
       setLoading(true);
-      const allPatterns = await db.shiftPatterns.orderBy('sortOrder').toArray();
-      console.log('✅ 読み込み成功:', allPatterns.length, '種類');
-      setPatterns(allPatterns);
+      console.log('📥 勤務パターンを読み込み中...');
+      const allPatterns = await db.shiftPatterns.toArray();
+      const sorted = [...allPatterns].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      console.log('✅ 読み込み成功:', sorted.length, '種類');
+      setPatterns(sorted);
     } catch (error) {
       console.error('❌ 勤務パターンの読み込みに失敗しました:', error);
     } finally {
@@ -23,8 +25,10 @@ export function useShiftPatterns() {
     loadPatterns();
   }, []);
 
+  // ★ バグ2修正: shortName / isWorkday / sortOrder を正しくセット
   const addPattern = async (data: ShiftPatternFormData): Promise<boolean> => {
     try {
+      console.log('➕ 勤務パターンを追加中...', data);
       const currentPatterns = await db.shiftPatterns.toArray();
       const newPattern: ShiftPattern = {
         id: crypto.randomUUID(),
@@ -49,8 +53,10 @@ export function useShiftPatterns() {
     }
   };
 
+  // ★ バグ2修正: 全フィールドを確実に更新
   const updatePattern = async (id: string, data: Partial<ShiftPatternFormData>): Promise<boolean> => {
     try {
+      console.log('✏️ 勤務パターンを更新中...', id, data);
       await db.shiftPatterns.update(id, {
         name: data.name,
         shortName: data.shortName,
@@ -72,7 +78,9 @@ export function useShiftPatterns() {
 
   const deletePattern = async (id: string): Promise<boolean> => {
     try {
+      console.log('🗑️ 勤務パターンを削除中...', id);
       await db.shiftPatterns.delete(id);
+      console.log('✅ データベースから削除成功:', id);
       await loadPatterns();
       return true;
     } catch (error) {
