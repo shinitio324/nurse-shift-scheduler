@@ -1,145 +1,168 @@
-import { useState } from 'react';
+// =============================================================
+// src/hooks/useScheduleGenerator.ts  ── 完全修正版
+// =============================================================
+
+import { useState, useCallback } from 'react';
 import { db } from '../db';
-import {
+import { ScheduleGenerator } from '../utils/scheduleAlgorithm';
+import type {
   ScheduleGenerationParams,
   ScheduleGenerationResult,
-  GeneratedSchedule,
 } from '../types';
-import { ScheduleGenerator } from '../utils/scheduleAlgorithm';
+
+function emptyResult(year: number, month: number): ScheduleGenerationResult {
+  return {
+    schedules:  [],
+    violations: [],
+    statistics: {
+      totalDays:              0,
+      totalShifts:            0,
+      staffWorkload:          [],
+      shiftTypeDistribution:  [],
+      maxConsecutiveWorkDays: 0,
+      totalWorkHours:         0,
+    },
+    generatedAt: new Date().toISOString(),
+    year,
+    month,
+  };
+}
 
 export function useScheduleGenerator() {
-  const [generating, setGenerating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<ScheduleGenerationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  /**
-   * スケジュールを生成
-   */
-  const generateSchedule = async (
-    params: ScheduleGenerationParams
-  ): Promise<ScheduleGenerationResult | null> => {
-    try {
-      setGenerating(true);
-      console.log('🚀 スケジュール生成を開始します...', params);
+  const generateSchedule = useCallback(
+    async (params: ScheduleGenerationParams): Promise<ScheduleGenerationResult> => {
+      setIsGenerating(true);
+      setError(null);
 
-      // データベースから必要なデータを取得
-      const staff = await db.staff.toArray();
-      const patterns = await db.shiftPatterns.toArray();
-      const constraints = await db.scheduleConstraints.toArray();
-      
-      // 対象月のシフト希望を取得
-      const startDate = `${params.targetYear}-${String(params.targetMonth).padStart(2, '0')}-01`;
-      const endDate = `${params.targetYear}-${String(params.targetMonth).padStart(2, '0')}-31`;
-      
-      const requests = await db.shifts
-        .where('date')
-        .between(startDate, endDate, true, true)
-        .toArray();
+      try {
+        console.log('スケジュール生成を開始します...', params);
 
-      // スタッフ名を付与
-      const requestsWithNames = requests.map(r => {
-        const staffMember = staff.find(s => s.id === r.staffId);
-        return {
-          ...r,
-          staffName: staffMember?.name || '不明',
-          status: 'pending' as const,
-          requestedAt: r.createdAt,
+        const [staffList, patternList, allConstraints, allRequests] = await Promise.all([
+          db.staff.toArray(),
+          db.shiftPatterns.toArray(),
+          db.scheduleConstraints.toArray(),
+          db.shiftRequests.toArray(),
+        ]);
+
+        const monthPrefix = `${params.year}-${String(params.month).padStart(2, '0')}`;
+        const monthRequests = allRequests.filter(r =>
+          typeof r.date === 'string' && r.date.startsWith(monthPrefix),
+        );
+
+        const constraints =
+          params.constraintIds && params.constraintIds.length > 0
+            ? allConstraints.filter(c => c.id !== undefined && params.constraintIds.includes(c.id))
+            : allConstraints.filter(c => c.isActive);
+
+        console.log('データ取得完了:');
+        console.log(`- スタッフ: ${staffList.length}名`);
+        console.log(`- 勤務パターン: ${patternList.length}種類`);
+        console.log(`- 制約条件: ${constraints.length}種類`);
+        console.log(`- シフト希望: ${monthRequests.length}件`);
+
+        const generator = new ScheduleGenerator(
+          staffList, patternList, constraints, monthRequests, params,
+        );
+        const raw = await generator.generate();
+
+        // ★ null-safe で結果を組み立て（ここがクラッシュ防止の核心）
+        const safeResult: ScheduleGenerationResult = {
+          schedules:  Array.isArray(raw?.schedules)  ? raw.schedules  : [],
+          violations: Array.isArray(raw?.violations) ? raw.violations : [],
+          statistics: {
+            totalDays:             raw?.statistics?.totalDays              ?? 0,
+            totalShifts:           raw?.statistics?.totalShifts            ?? 0,
+            staffWorkload:         Array.isArray(raw?.statistics?.staffWorkload)
+                                     ? raw.statistics.staffWorkload : [],
+            shiftTypeDistribution: Array.isArray(raw?.statistics?.shiftTypeDistribution)
+                                     ? raw.statistics.shiftTypeDistribution : [],
+            maxConsecutiveWorkDays: raw?.statistics?.maxConsecutiveWorkDays ?? 0,
+            totalWorkHours:         raw?.statistics?.totalWorkHours         ?? 0,
+          },
+          generatedAt: raw?.generatedAt ?? new Date().toISOString(),
+          year:  raw?.year  ?? params.year,
+          month: raw?.month ?? params.month,
         };
-      });
 
-      console.log('📊 データ取得完了:');
-      console.log('  - スタッフ:', staff.length, '名');
-      console.log('  - 勤務パターン:', patterns.length, '種類');
-      console.log('  - 制約条件:', constraints.length, '種類');
-      console.log('  - シフト希望:', requestsWithNames.length, '件');
+        console.log('スケジュール生成が完了しました！');
+        console.log(
+          `- 生成済み: ${safeResult.schedules.length}件`,
+          `/ 違反: ${safeResult.violations.length}件`,
+          `/ スタッフ統計: ${safeResult.statistics.staffWorkload.length}名分`,
+        );
 
-      // スケジュール生成エンジンを実行
-      const generator = new ScheduleGenerator(
-        staff,
-        patterns,
-        constraints,
-        requestsWithNames,
-        params
-      );
+        setResult(safeResult);
+        return safeResult;
 
-      const generationResult = generator.generate();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('スケジュール生成に失敗しました:', e);
+        setError(msg);
+        const fallback = emptyResult(params.year, params.month);
+        setResult(fallback);
+        throw e;
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [],
+  );
 
-      console.log('✅ スケジュール生成が完了しました！');
-      console.log('📊 結果:', generationResult.schedules.length, '件のシフト');
-      console.log('⚠️ 違反:', generationResult.violations.length, '件');
+  const saveSchedule = useCallback(
+    async (
+      generationResult: ScheduleGenerationResult,
+      year: number,
+      month: number,
+    ): Promise<boolean> => {
+      try {
+        const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
 
-      // 重要: state を更新
-      setResult(generationResult);
-      console.log('💾 結果を state にセットしました');
-
-      return generationResult;
-    } catch (error) {
-      console.error('❌ スケジュール生成に失敗しました:', error);
-      alert('スケジュール生成に失敗しました。もう一度お試しください。\n\nエラー: ' + (error as Error).message);
-      return null;
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  /**
-   * 生成されたスケジュールをデータベースに保存
-   */
-  const saveSchedule = async (schedules: GeneratedSchedule[]): Promise<boolean> => {
-    try {
-      console.log('💾 スケジュールを保存中...', schedules.length, '件');
-
-      // 対象月の既存のスケジュールを削除
-      if (schedules.length > 0) {
-        const firstDate = schedules[0].date;
-        const [year, month] = firstDate.split('-');
-        const startDate = `${year}-${month}-01`;
-        const endDate = `${year}-${month}-31`;
-
-        const existingShifts = await db.shifts
-          .where('date')
-          .between(startDate, endDate, true, true)
+        const existing = await db.generatedSchedules
+          .filter(s => typeof s.date === 'string' && s.date.startsWith(monthPrefix))
           .toArray();
 
-        if (existingShifts.length > 0) {
-          await db.shifts.bulkDelete(existingShifts.map(s => s.id));
-          console.log('🗑️ 既存のスケジュールを削除しました:', existingShifts.length, '件');
+        if (existing.length > 0) {
+          const ids = existing
+            .map(s => s.id)
+            .filter((id): id is number => id !== undefined);
+          await db.generatedSchedules.bulkDelete(ids);
+          console.log(`既存スケジュール ${ids.length} 件を削除しました`);
         }
+
+        const schedules = Array.isArray(generationResult?.schedules)
+          ? generationResult.schedules : [];
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const toSave = schedules.map(({ id: _id, ...rest }) => ({
+          ...rest,
+          createdAt: rest.createdAt ?? new Date().toISOString(),
+        }));
+
+        if (toSave.length > 0) {
+          await db.generatedSchedules.bulkAdd(
+            toSave as Parameters<typeof db.generatedSchedules.bulkAdd>[0],
+          );
+        }
+
+        console.log(`スケジュール ${toSave.length} 件を保存しました`);
+        return true;
+
+      } catch (e) {
+        console.error('スケジュール保存に失敗しました:', e);
+        return false;
       }
+    },
+    [],
+  );
 
-      // 新しいスケジュールを保存
-      const shiftsToSave = schedules.map(s => ({
-        id: s.id,
-        staffId: s.staffId,
-        date: s.date,
-        shiftType: s.shiftType,
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-      }));
-
-      await db.shifts.bulkAdd(shiftsToSave);
-      console.log('✅ スケジュールの保存が完了しました！');
-
-      return true;
-    } catch (error) {
-      console.error('❌ スケジュールの保存に失敗しました:', error);
-      alert('スケジュールの保存に失敗しました。もう一度お試しください。\n\nエラー: ' + (error as Error).message);
-      return false;
-    }
-  };
-
-  /**
-   * 結果をクリア
-   */
-  const clearResult = () => {
-    console.log('🧹 結果をクリアしました');
+  const clearResult = useCallback(() => {
     setResult(null);
-  };
+    setError(null);
+  }, []);
 
-  return {
-    generating,
-    result,
-    generateSchedule,
-    saveSchedule,
-    clearResult,
-  };
+  return { isGenerating, result, error, generateSchedule, saveSchedule, clearResult };
 }
