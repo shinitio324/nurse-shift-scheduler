@@ -99,8 +99,12 @@ export interface ConstraintsFormData {
 }
 
 export interface ScheduleGenerationParams {
-  year: number;
-  month: number;
+  // フォームが送る名前
+  targetYear?: number;
+  targetMonth?: number;
+  // 正規化後の名前（どちらかが必ず入る）
+  year?: number;
+  month?: number;
   constraintIds: number[];
   prioritizeRequests: boolean;
   balanceWorkload: boolean;
