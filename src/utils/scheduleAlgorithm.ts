@@ -1,19 +1,28 @@
 // =============================================================
 // src/utils/scheduleAlgorithm.ts  ── 完全修正版
-// Bug A: applyAkeForDate を assignDailyShifts の「前」に実行
-// Bug B: calcStatistics を ScheduleStatistics 型に完全準拠
-// Bug C: isNightShift がパターンの isNight フラグも参照
-// Bug D: 月初1日の前月末夜勤を IndexedDB から取得
-// Bug E: 有給リクエストが明け予定日に入らないよう Pass1 でスキップ
+//
+// 修正点:
+//   [Bug A] applyAkeForDate を assignDailyShifts の「前」に呼ぶ
+//   [Bug B] calcStatistics を ScheduleStatistics 型に完全準拠
+//   [Bug C] isNightShift がパターンの isNight フラグも参照
+//   [Bug D] 月初1日の前月末夜勤を IndexedDB から取得
+//   [Bug E] 有給リクエストが明け予定日に入らないよう Pass1 でスキップ
+//   [Bug F] params.year/month が undefined の場合 targetYear/targetMonth にフォールバック
 // =============================================================
 
 import { db } from '../db';
 import type {
-  Staff, ShiftPattern, ScheduleConstraints,
-  ScheduleGenerationParams, GeneratedSchedule,
-  ConstraintViolation, ScheduleGenerationResult,
-  ScheduleStatistics, StaffWorkloadStat,
-  ShiftTypeDistributionStat, ShiftRequest,
+  Staff,
+  ShiftPattern,
+  ScheduleConstraints,
+  ScheduleGenerationParams,
+  GeneratedSchedule,
+  ConstraintViolation,
+  ScheduleGenerationResult,
+  ScheduleStatistics,
+  StaffWorkloadStat,
+  ShiftTypeDistributionStat,
+  ShiftRequest,
 } from '../types';
 
 const AKE_NAME      = '明け';
@@ -48,6 +57,10 @@ export class ScheduleGenerator {
   private schedules: GeneratedSchedule[] = [];
   private violations: ConstraintViolation[] = [];
 
+  // ★ year/month を正規化して保持（targetYear/targetMonth にも対応）
+  private readonly year: number;
+  private readonly month: number;
+
   private hasAkePattern: boolean;
   private akePattern: ShiftPattern | undefined;
   private hasVacationPattern: boolean;
@@ -61,35 +74,39 @@ export class ScheduleGenerator {
     requests: ShiftRequest[],
     params: ScheduleGenerationParams,
   ) {
-    this.staff        = staff;
-    this.allPatterns  = allPatterns;
-    this.constraints  = constraints;
-    this.requests     = requests;
-    this.params       = params;
+    this.staff       = staff;
+    this.allPatterns = allPatterns;
+    this.constraints = constraints;
+    this.requests    = requests;
+    this.params      = params;
 
-    this.akePattern         = allPatterns.find(p => p.isAke      === true || p.name === AKE_NAME);
+    // ★ フォールバック: targetYear/targetMonth → year/month
+    this.year  = params.year  ?? params.targetYear  ?? new Date().getFullYear();
+    this.month = params.month ?? params.targetMonth ?? (new Date().getMonth() + 1);
+
+    this.akePattern         = allPatterns.find(p => p.isAke === true || p.name === AKE_NAME);
     this.hasAkePattern      = !!this.akePattern;
     this.vacationPattern    = allPatterns.find(p => p.isVacation === true || p.name === VACATION_NAME);
     this.hasVacationPattern = !!this.vacationPattern;
 
     console.log(
-      `[SG] 明けパターン: ${this.hasAkePattern ? '✅' : '❌'}  ` +
+      `[SG] ${this.year}年${this.month}月  ` +
+      `明けパターン: ${this.hasAkePattern ? '✅' : '❌'}  ` +
       `有給パターン: ${this.hasVacationPattern ? '✅' : '❌'}`,
     );
   }
 
   private async loadPrevMonthNightStaff(): Promise<void> {
     if (!this.hasAkePattern) return;
-    const { year, month } = this.params;
-    const prevYear  = month === 1 ? year - 1 : year;
-    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear  = this.month === 1 ? this.year - 1 : this.year;
+    const prevMonth = this.month === 1 ? 12 : this.month - 1;
     const lastDate  = formatDate(prevYear, prevMonth, getDaysInMonth(prevYear, prevMonth));
     try {
       const rows = await db.generatedSchedules.where('date').equals(lastDate).toArray();
       this.prevMonthNightStaffIds = new Set(
         rows.filter(s => this.isNightShift(s.shiftType)).map(s => s.staffId),
       );
-      console.log(`[SG] 前月末夜勤スタッフ (${lastDate}):`, this.prevMonthNightStaffIds.size, '名');
+      console.log(`[SG] 前月末夜勤 (${lastDate}):`, this.prevMonthNightStaffIds.size, '名');
     } catch (e) {
       console.warn('[SG] 前月末夜勤ロード失敗:', e);
     }
@@ -97,31 +114,28 @@ export class ScheduleGenerator {
 
   async generate(): Promise<ScheduleGenerationResult> {
     await this.loadPrevMonthNightStaff();
-    const { year, month } = this.params;
-    const dates = getMonthDates(year, month);
+    const dates = getMonthDates(this.year, this.month);
+    console.log(`[SG] 対象: ${dates.length}日 (${dates[0]} 〜 ${dates[dates.length - 1]})`);
 
-    // Pass 1: 有給先行確定（明け予定日スキップ）
     this.pass1_vacationRequests(dates);
 
-    // Pass 2: 日次割当て ★ 明けが先、通常が後
     for (const date of dates) {
-      if (this.hasAkePattern) this.applyAkeForDate(date);
+      if (this.hasAkePattern) this.applyAkeForDate(date); // ★ 通常割当ての前
       this.assignDailyShifts(date);
     }
 
-    // Pass 3: 休み日数調整
     this.pass3_adjustRestDays(dates);
-
-    // Pass 4: 最低勤務日数保証
     this.pass4_enforceMinWorkDays(dates);
+
+    console.log(`[SG] 完了: ${this.schedules.length}件 / 違反: ${this.violations.length}件`);
 
     return {
       schedules:   this.schedules,
       violations:  this.violations,
       statistics:  this.calcStatistics(dates),
       generatedAt: new Date().toISOString(),
-      year,
-      month,
+      year:        this.year,
+      month:       this.month,
     };
   }
 
@@ -131,56 +145,42 @@ export class ScheduleGenerator {
       r => r.shiftType === VACATION_NAME || r.patternId === this.vacationPattern!.id,
     );
     for (const req of vacReqs) {
-      const d = req.date.slice(0, 10);
-      if (!dates.includes(d)) continue;
-      if (this.willBeAke(req.staffId, d)) {
-        console.log(`[P1] ${req.staffId} ${d} 明け予定のため有給スキップ`);
-        continue;
-      }
+      const d = typeof req.date === 'string' ? req.date.slice(0, 10) : '';
+      if (!d || !dates.includes(d)) continue;
+      if (this.willBeAke(req.staffId, d)) continue;
       if (!this.getSch(req.staffId, d)) this.push(req.staffId, d, VACATION_NAME);
     }
   }
 
   private willBeAke(staffId: number | string, dateStr: string): boolean {
     if (!this.hasAkePattern) return false;
-    const { year, month } = this.params;
-    if (dateStr === formatDate(year, month, 1)) {
+    if (dateStr === formatDate(this.year, this.month, 1)) {
       return this.prevMonthNightStaffIds.has(staffId);
     }
     const prevSch = this.getSch(staffId, addDays(dateStr, -1));
     return !!(prevSch && this.isNightShift(prevSch.shiftType));
   }
 
-  // ★ 明け付与: 必ず assignDailyShifts の前に呼ぶ
   private applyAkeForDate(date: string): void {
-    const { year, month } = this.params;
-    const isFirstDay = date === formatDate(year, month, 1);
+    const isFirstDay = date === formatDate(this.year, this.month, 1);
     const prevDate   = addDays(date, -1);
-
     for (const st of this.staff) {
-      if (this.getSch(st.id, date)) continue; // 有給等で確定済み
-
+      if (this.getSch(st.id, date)) continue;
       const prevWasNight = isFirstDay
         ? this.prevMonthNightStaffIds.has(st.id as number)
-        : (() => {
-            const ps = this.getSch(st.id, prevDate);
-            return !!(ps && this.isNightShift(ps.shiftType));
-          })();
-
+        : (() => { const ps = this.getSch(st.id, prevDate); return !!(ps && this.isNightShift(ps.shiftType)); })();
       if (prevWasNight) {
         this.push(st.id, date, AKE_NAME);
-        console.log(`[applyAke] ✅ ${st.name} ${date} → 明け付与`);
+        console.log(`[applyAke] ✅ ${st.name} ${date} → 明け`);
       }
     }
   }
 
   private assignDailyShifts(date: string): void {
-    for (const req of this.requests.filter(r => r.date.slice(0, 10) === date)) {
+    for (const req of this.requests.filter(r => typeof r.date === 'string' && r.date.slice(0, 10) === date)) {
       if (this.getSch(req.staffId, date)) continue;
       if (req.shiftType === VACATION_NAME) continue;
-      if (this.canAssign(req.staffId, date, req.shiftType)) {
-        this.push(req.staffId, date, req.shiftType);
-      }
+      if (this.canAssign(req.staffId, date, req.shiftType)) this.push(req.staffId, date, req.shiftType);
     }
     for (const st of this.staff) {
       if (this.getSch(st.id, date)) continue;
@@ -238,8 +238,7 @@ export class ScheduleGenerator {
       if (deficit > 0) {
         this.violations.push({
           staffId: String(st.id), staffName: st.name,
-          date: formatDate(this.params.year, this.params.month, 1),
-          type: 'warning',
+          date: formatDate(this.year, this.month, 1), type: 'warning',
           message: `${st.name}: 最低勤務日数 ${min}日 を ${deficit}日 達成できませんでした`,
         });
       }
@@ -248,8 +247,7 @@ export class ScheduleGenerator {
 
   private canWork(staffId: number | string, date: string): boolean {
     const max = this.getActiveConstraint()?.maxConsecutiveWorkDays ?? 3;
-    let consec = 0;
-    let d = addDays(date, -1);
+    let consec = 0, d = addDays(date, -1);
     for (let i = 0; i < max; i++) {
       const s = this.getSch(staffId, d);
       if (s && this.isWorkShift(s.shiftType)) { consec++; d = addDays(d, -1); }
@@ -261,23 +259,17 @@ export class ScheduleGenerator {
   private canAssign(staffId: number | string, date: string, shiftType: string): boolean {
     if (!this.canWork(staffId, date)) return false;
     if (this.hasAkePattern) {
-      const { year, month } = this.params;
-      const isFirst = date === formatDate(year, month, 1);
+      const isFirst = date === formatDate(this.year, this.month, 1);
       const prevWasNight = isFirst
         ? this.prevMonthNightStaffIds.has(staffId)
-        : (() => {
-            const ps = this.getSch(staffId, addDays(date, -1));
-            return !!(ps && this.isNightShift(ps.shiftType));
-          })();
+        : (() => { const ps = this.getSch(staffId, addDays(date, -1)); return !!(ps && this.isNightShift(ps.shiftType)); })();
       if (prevWasNight) return shiftType === AKE_NAME;
     }
     return true;
   }
 
   private getActiveConstraint(): ScheduleConstraints | undefined {
-    return [...this.constraints]
-      .filter(c => c.isActive)
-      .sort((a, b) => b.priority - a.priority)[0];
+    return [...this.constraints].filter(c => c.isActive).sort((a, b) => b.priority - a.priority)[0];
   }
 
   private calcStatistics(dates: string[]): ScheduleStatistics {
@@ -286,15 +278,11 @@ export class ScheduleGenerator {
       const restDays  = this.countRest(st.id, dates);
       const akeDays   = dates.filter(d => this.getSch(st.id, d)?.shiftType === AKE_NAME).length;
       const vacDays   = dates.filter(d => this.getSch(st.id, d)?.shiftType === VACATION_NAME).length;
-      const nightDays = dates.filter(d => {
-        const s = this.getSch(st.id, d);
-        return s ? this.isNightShift(s.shiftType) : false;
-      }).length;
+      const nightDays = dates.filter(d => { const s = this.getSch(st.id, d); return s ? this.isNightShift(s.shiftType) : false; }).length;
       let maxConsec = 0, cur = 0;
       for (const d of dates) {
         const s = this.getSch(st.id, d);
-        if (s && this.isWorkShift(s.shiftType)) { cur++; maxConsec = Math.max(maxConsec, cur); }
-        else cur = 0;
+        if (s && this.isWorkShift(s.shiftType)) { cur++; maxConsec = Math.max(maxConsec, cur); } else cur = 0;
       }
       let totalHours = 0;
       for (const d of dates) {
@@ -304,27 +292,23 @@ export class ScheduleGenerator {
         if (pat) totalHours += this.calcShiftHours(pat.startTime, pat.endTime);
       }
       return {
-        staffId: String(st.id), staffName: st.name,
-        totalDays: dates.length, workDays, restDays,
-        akeDays, vacationDays: vacDays, nightShiftDays: nightDays,
-        maxConsecutiveWorkDays: maxConsec, totalWorkHours: totalHours,
+        staffId: String(st.id), staffName: st.name, totalDays: dates.length,
+        workDays, restDays, akeDays, vacationDays: vacDays,
+        nightShiftDays: nightDays, maxConsecutiveWorkDays: maxConsec, totalWorkHours: totalHours,
       } satisfies StaffWorkloadStat;
     });
 
     const distMap = new Map<string, number>();
-    for (const s of this.schedules) {
-      distMap.set(s.shiftType, (distMap.get(s.shiftType) ?? 0) + 1);
-    }
-    const shiftTypeDistribution: ShiftTypeDistributionStat[] = Array.from(distMap.entries())
-      .map(([shiftType, count]) => ({ shiftType, count }));
+    for (const s of this.schedules) distMap.set(s.shiftType, (distMap.get(s.shiftType) ?? 0) + 1);
+    const shiftTypeDistribution: ShiftTypeDistributionStat[] =
+      Array.from(distMap.entries()).map(([shiftType, count]) => ({ shiftType, count }));
 
     return {
-      totalDays:              dates.length,
-      totalShifts:            this.schedules.filter(s => this.isWorkShift(s.shiftType)).length,
-      staffWorkload,
-      shiftTypeDistribution,
+      totalDays: dates.length,
+      totalShifts: this.schedules.filter(s => this.isWorkShift(s.shiftType)).length,
+      staffWorkload, shiftTypeDistribution,
       maxConsecutiveWorkDays: staffWorkload.reduce((a, s) => Math.max(a, s.maxConsecutiveWorkDays), 0),
-      totalWorkHours:         staffWorkload.reduce((a, s) => a + s.totalWorkHours, 0),
+      totalWorkHours: staffWorkload.reduce((a, s) => a + s.totalWorkHours, 0),
     } satisfies ScheduleStatistics;
   }
 
@@ -361,17 +345,12 @@ export class ScheduleGenerator {
   }
 
   private overwrite(staffId: number | string, date: string, shiftType: string): void {
-    const i = this.schedules.findIndex(
-      s => String(s.staffId) === String(staffId) && s.date === date,
-    );
+    const i = this.schedules.findIndex(s => String(s.staffId) === String(staffId) && s.date === date);
     if (i >= 0) this.schedules[i] = { ...this.schedules[i], shiftType };
   }
 
   private countWork(staffId: number | string, dates: string[]): number {
-    return dates.filter(d => {
-      const s = this.getSch(staffId, d);
-      return s && this.isWorkShift(s.shiftType);
-    }).length;
+    return dates.filter(d => { const s = this.getSch(staffId, d); return s && this.isWorkShift(s.shiftType); }).length;
   }
 
   private countRest(staffId: number | string, dates: string[]): number {
