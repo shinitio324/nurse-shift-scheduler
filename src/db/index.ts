@@ -1,120 +1,121 @@
-// src/db/index.ts
-import Dexie, { Table } from 'dexie';
-import { Staff, Shift, ShiftPattern, ShiftRequest, ScheduleConstraints } from '../types';
+// =============================================================
+// src/db/index.ts  ── 完全版 (Dexie v4)
+// =============================================================
 
-export class NurseSchedulerDB extends Dexie {
-  staff!: Table<Staff>;
-  shifts!: Table<Shift>;
-  shiftPatterns!: Table<ShiftPattern>;
-  shiftRequests!: Table<ShiftRequest>;
-  scheduleConstraints!: Table<ScheduleConstraints>;
+import Dexie, { type Table } from 'dexie';
+import type {
+  Staff, ShiftPattern, ShiftRequest,
+  ScheduleConstraints, GeneratedSchedule,
+} from '../types';
+
+export class NurseShiftDB extends Dexie {
+  staff!: Table<Staff, number>;
+  shiftPatterns!: Table<ShiftPattern, number>;
+  shiftRequests!: Table<ShiftRequest, number>;
+  scheduleConstraints!: Table<ScheduleConstraints, number>;
+  generatedSchedules!: Table<GeneratedSchedule, number>;
 
   constructor() {
-    super('NurseSchedulerDB');
+    super('nurse-shift-db');
 
-    // ─── v1 ─── 初期スキーマ
     this.version(1).stores({
-      staff:               '&id, name, position, employmentType',
-      shifts:              '&id, staffId, date, shiftType',
-      shiftPatterns:       '&id, name',
-      shiftRequests:       '&id, staffId, date',
-      scheduleConstraints: '&id, isActive, priority',
+      staff:               '++id, name, position, employmentType',
+      shiftPatterns:       '++id, name',
+      shiftRequests:       '++id, staffId, date, shiftType',
+      scheduleConstraints: '++id, name, isActive',
+      generatedSchedules:  '++id, staffId, date, shiftType',
     });
 
-    // ─── v2 ─── nightShiftNextDayOff 追加
-    this.version(2).stores({
-      staff:               '&id, name, position, employmentType',
-      shifts:              '&id, staffId, date, shiftType',
-      shiftPatterns:       '&id, name',
-      shiftRequests:       '&id, staffId, date',
-      scheduleConstraints: '&id, isActive, priority',
-    }).upgrade(tx => {
-      return tx.table('scheduleConstraints').toCollection().modify((rec: ScheduleConstraints) => {
-        if (rec.nightShiftNextDayOff === undefined) rec.nightShiftNextDayOff = false;
-      });
-    });
+    this.version(2)
+      .stores({
+        staff:               '++id, name, position, employmentType',
+        shiftPatterns:       '++id, name',
+        shiftRequests:       '++id, staffId, date, shiftType',
+        scheduleConstraints: '++id, name, isActive',
+        generatedSchedules:  '++id, staffId, date, shiftType',
+      })
+      .upgrade(tx =>
+        tx.table('scheduleConstraints').toCollection().modify((rec: ScheduleConstraints) => {
+          if (rec.nightShiftNextDayOff === undefined) rec.nightShiftNextDayOff = false;
+        }),
+      );
 
-    // ─── v3 ─── exactRestDaysPerMonth / isAke / isVacation 追加
-    this.version(3).stores({
-      staff:               '&id, name, position, employmentType',
-      shifts:              '&id, staffId, date, shiftType',
-      shiftPatterns:       '&id, name',
-      shiftRequests:       '&id, staffId, date',
-      scheduleConstraints: '&id, isActive, priority',
-    }).upgrade(tx => {
-      tx.table('scheduleConstraints').toCollection().modify((rec: ScheduleConstraints) => {
-        if (rec.exactRestDaysPerMonth === undefined) rec.exactRestDaysPerMonth = 0;
+    this.version(3)
+      .stores({
+        staff:               '++id, name, position, employmentType',
+        shiftPatterns:       '++id, name',
+        shiftRequests:       '++id, staffId, date, shiftType',
+        scheduleConstraints: '++id, name, isActive',
+        generatedSchedules:  '++id, staffId, date, shiftType',
+      })
+      .upgrade(tx => {
+        tx.table('shiftPatterns').toCollection().modify((rec: ShiftPattern) => {
+          if (rec.isAke      === undefined) rec.isAke      = false;
+          if (rec.isVacation === undefined) rec.isVacation = false;
+          if (rec.isNight    === undefined) rec.isNight    = false;
+        });
+        tx.table('scheduleConstraints').toCollection().modify((rec: ScheduleConstraints) => {
+          if (rec.exactRestDaysPerMonth     === undefined) rec.exactRestDaysPerMonth     = 0;
+          if (rec.maxNightShiftsPerWeek     === undefined) rec.maxNightShiftsPerWeek     = 0;
+          if (rec.maxConsecutiveNightShifts === undefined) rec.maxConsecutiveNightShifts = 0;
+          if (rec.maxWorkHoursPerWeek       === undefined) rec.maxWorkHoursPerWeek       = 0;
+          if (rec.maxWorkHoursPerMonth      === undefined) rec.maxWorkHoursPerMonth      = 0;
+        });
       });
-      tx.table('shiftPatterns').toCollection().modify((rec: ShiftPattern) => {
-        if (rec.isAke === undefined) rec.isAke = false;
-        if (rec.isVacation === undefined) rec.isVacation = false;
-        if (rec.name.includes('明') && !rec.isWorkday) rec.isAke = true;
-        if ((rec.name.includes('有給') || rec.name.includes('年休')) && !rec.isWorkday) {
-          rec.isVacation = true;
-        }
-      });
-      return Promise.resolve();
-    });
 
-    // ─── v4 ─── Staff に minWorkDaysPerMonth / qualifications を追加 ★NEW
-    this.version(4).stores({
-      staff:               '&id, name, position, employmentType',
-      shifts:              '&id, staffId, date, shiftType',
-      shiftPatterns:       '&id, name',
-      shiftRequests:       '&id, staffId, date',
-      scheduleConstraints: '&id, isActive, priority',
-    }).upgrade(tx => {
-      return tx.table('staff').toCollection().modify((rec: Staff) => {
-        // 既存レコードに minWorkDaysPerMonth = 0（制約なし）を補完
-        if (rec.minWorkDaysPerMonth === undefined) rec.minWorkDaysPerMonth = 0;
-        // qualifications が未定義の場合は空配列を補完
-        if (!Array.isArray(rec.qualifications)) rec.qualifications = [];
-      });
-    });
+    this.version(4)
+      .stores({
+        staff:               '++id, name, position, employmentType',
+        shiftPatterns:       '++id, name',
+        shiftRequests:       '++id, staffId, date, shiftType',
+        scheduleConstraints: '++id, name, isActive',
+        generatedSchedules:  '++id, staffId, date, shiftType',
+      })
+      .upgrade(tx =>
+        tx.table('staff').toCollection().modify((rec: Staff) => {
+          if (rec.minWorkDaysPerMonth === undefined) rec.minWorkDaysPerMonth = 0;
+          if (!Array.isArray(rec.qualifications))    rec.qualifications      = [];
+        }),
+      );
   }
 }
 
-export const db = new NurseSchedulerDB();
+export const db = new NurseShiftDB();
 
-// ================================================================
-// 起動時に「明け」「有給」パターンが未登録なら自動作成
-// ================================================================
 export async function ensureDefaultPatterns(): Promise<void> {
-  const patterns = await db.shiftPatterns.toArray();
-  const hasAke      = patterns.some(p => p.isAke || p.name === '明け');
-  const hasVacation = patterns.some(p => p.isVacation || p.name === '有給');
-  const toAdd: ShiftPattern[] = [];
+  try {
+    const patterns = await db.shiftPatterns.toArray();
+    const now = new Date().toISOString();
 
-  if (!hasAke) {
-    toAdd.push({
-      id: crypto.randomUUID(),
-      name: '明け',
-      shortName: '明',
-      color: '#8B5CF6',
-      isWorkday: false,
-      isAke: true,
-      isVacation: false,
-      requiredStaff: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-  }
-  if (!hasVacation) {
-    toAdd.push({
-      id: crypto.randomUUID(),
-      name: '有給',
-      shortName: '有',
-      color: '#10B981',
-      isWorkday: false,
-      isAke: false,
-      isVacation: true,
-      requiredStaff: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-  }
-  if (toAdd.length > 0) {
-    await db.shiftPatterns.bulkAdd(toAdd);
-    console.log('✅ デフォルトパターンを追加しました:', toAdd.map(p => p.name));
+    const hasAke      = patterns.some(p => p.isAke      === true || p.name === '明け');
+    const hasVacation = patterns.some(p => p.isVacation === true || p.name === '有給');
+    const hasRest     = patterns.some(p => p.name === '休み' && !p.isAke && !p.isVacation);
+
+    if (!hasAke) {
+      await db.shiftPatterns.add({
+        name: '明け', startTime: '00:00', endTime: '00:00',
+        color: '#9C27B0', isAke: true, isVacation: false, isNight: false,
+        createdAt: now, updatedAt: now,
+      });
+      console.log('✅ 明けパターンを作成しました');
+    }
+    if (!hasVacation) {
+      await db.shiftPatterns.add({
+        name: '有給', startTime: '00:00', endTime: '00:00',
+        color: '#4CAF50', isAke: false, isVacation: true, isNight: false,
+        createdAt: now, updatedAt: now,
+      });
+      console.log('✅ 有給パターンを作成しました');
+    }
+    if (!hasRest) {
+      await db.shiftPatterns.add({
+        name: '休み', startTime: '00:00', endTime: '00:00',
+        color: '#9E9E9E', isAke: false, isVacation: false, isNight: false,
+        createdAt: now, updatedAt: now,
+      });
+      console.log('✅ 休みパターンを作成しました');
+    }
+  } catch (e) {
+    console.error('ensureDefaultPatterns エラー:', e);
   }
 }
