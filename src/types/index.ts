@@ -1,184 +1,104 @@
-// =============================================================
-// src/types/index.ts  ── 完全版
-// =============================================================
+// src/types/index.ts
+// ⚠️ このファイルは「型定義のみ」— ランタイムコードは一切書かない
 
+// ─────────────────────────────────────────────
+// スタッフ
+// ─────────────────────────────────────────────
 export interface Staff {
   id?: number;
   name: string;
-  position: string;
-  employmentType: string;        // '常勤' | '非常勤' | 'パート'
-  qualifications: string[];
-  minWorkDaysPerMonth: number;   // 0 = 制約なし（休み・明け・有給はカウント外）
-  createdAt?: string;
-  updatedAt?: string;
+  role: string;
+  minWorkDaysPerMonth?: number;
+  maxConsecutiveWorkDays?: number;
 }
 
-export interface StaffFormData {
-  name: string;
-  position: string;
-  employmentType: string;
-  qualifications: string[];
-  minWorkDaysPerMonth: number;
-}
-
+// ─────────────────────────────────────────────
+// シフトパターン
+// ─────────────────────────────────────────────
 export interface ShiftPattern {
   id?: number;
   name: string;
   startTime: string;
   endTime: string;
   color: string;
-  isAke?: boolean;      // 明けシフトフラグ（休みカウント外）
-  isVacation?: boolean; // 有給フラグ（休みカウント外）
-  isNight?: boolean;    // 夜勤フラグ（名前に依存しない判定）
-  createdAt?: string;
-  updatedAt?: string;
+  requiredStaff: number;
+  isAke?: boolean;       // 明けフラグ
+  isVacation?: boolean;  // 有給フラグ
+  isNight?: boolean;     // 夜勤フラグ
 }
 
-export interface Shift {
-  id?: number;
-  staffId: number;
-  staffName?: string;
-  date: string;
-  shiftType: string;
-  note?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
+// ─────────────────────────────────────────────
+// シフトリクエスト
+// ─────────────────────────────────────────────
 export interface ShiftRequest {
   id?: number;
-  staffId: number | string;
-  staffName?: string;
-  date: string;
-  shiftType: string;
-  patternId?: number;
-  status?: 'pending' | 'approved' | 'rejected';
-  note?: string;
-  requestedAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface ShiftRequestFormData {
-  staffId: number | string;
-  date: string;
-  shiftType: string;
-  patternId?: number;
+  staffId: number;
+  date: string;        // "YYYY-MM-DD"
+  patternId: number;
   note?: string;
 }
 
+// ─────────────────────────────────────────────
+// 制約
+// ─────────────────────────────────────────────
 export interface ScheduleConstraints {
   id?: number;
-  name: string;
-  isActive: boolean;
-  priority: number;
-  maxConsecutiveWorkDays: number;
-  maxNightShiftsPerMonth: number;
-  maxNightShiftsPerWeek: number;
-  maxConsecutiveNightShifts: number;
-  nightShiftNextDayOff: boolean;
-  exactRestDaysPerMonth: number;   // 0=なし（明け・有給除外）
-  maxWorkHoursPerWeek: number;
-  maxWorkHoursPerMonth: number;
-  createdAt?: string;
-  updatedAt?: string;
+  maxConsecutiveWorkDays?: number;
+  minRestDaysBetweenNights?: number;
+  minWorkDaysPerMonth?: number;
+  exactRestDaysPerMonth?: number;
 }
 
-export interface ConstraintsFormData {
-  name: string;
-  isActive: boolean;
-  priority: number;
-  maxConsecutiveWorkDays: number;
-  maxNightShiftsPerMonth: number;
-  maxNightShiftsPerWeek: number;
-  maxConsecutiveNightShifts: number;
-  nightShiftNextDayOff: boolean;
-  exactRestDaysPerMonth: number;
-  maxWorkHoursPerWeek: number;
-  maxWorkHoursPerMonth: number;
+// ─────────────────────────────────────────────
+// 生成済みシフト
+// ─────────────────────────────────────────────
+export interface GeneratedShift {
+  id?: number;
+  staffId: number;
+  date: string;        // "YYYY-MM-DD"
+  patternId: number;
+  isManual: boolean;
 }
 
+// ─────────────────────────────────────────────
+// スケジュール生成パラメータ
+// ─────────────────────────────────────────────
 export interface ScheduleGenerationParams {
-  // フォームが送る名前
-  targetYear?: number;
-  targetMonth?: number;
-  // 正規化後の名前（どちらかが必ず入る）
   year?: number;
   month?: number;
-  constraintIds: number[];
-  prioritizeRequests: boolean;
-  balanceWorkload: boolean;
-  balanceNightShifts: boolean;
+  targetYear?: number;   // フォームからの互換用
+  targetMonth?: number;  // フォームからの互換用
 }
 
-export interface GeneratedSchedule {
-  id?: number;
-  staffId: number | string;
-  staffName: string;
-  date: string;
-  shiftType: string;
-  isGenerated: boolean;
-  note?: string;
-  createdAt?: string;
-}
-
-export interface ConstraintViolation {
-  staffId: string;
-  staffName: string;
-  date: string;
-  type: 'error' | 'warning';
-  message: string;
-  constraintName?: string;
-}
-
+// ─────────────────────────────────────────────
+// スタッフ別ワークロード統計
+// ─────────────────────────────────────────────
 export interface StaffWorkloadStat {
-  staffId: string;
+  staffId: number;
   staffName: string;
-  totalDays: number;
   workDays: number;
   restDays: number;
   akeDays: number;
   vacationDays: number;
-  nightShiftDays: number;
-  maxConsecutiveWorkDays: number;
-  totalWorkHours: number;
+  nightDays: number;
+  totalDays: number;
 }
 
-export interface ShiftTypeDistributionStat {
-  shiftType: string;
-  count: number;
-}
-
+// ─────────────────────────────────────────────
+// スケジュール統計
+// ─────────────────────────────────────────────
 export interface ScheduleStatistics {
   totalDays: number;
   totalShifts: number;
   staffWorkload: StaffWorkloadStat[];
-  shiftTypeDistribution: ShiftTypeDistributionStat[];
-  maxConsecutiveWorkDays: number;
-  totalWorkHours: number;
+  shiftTypeDistribution: Record<string, number>;
 }
 
+// ─────────────────────────────────────────────
+// 生成結果
+// ─────────────────────────────────────────────
 export interface ScheduleGenerationResult {
-  schedules: GeneratedSchedule[];
-  violations: ConstraintViolation[];
+  schedule: GeneratedShift[];
   statistics: ScheduleStatistics;
-  generatedAt: string;
-  year: number;
-  month: number;
-}
-
-export interface CalendarDate {
-  year: number;
-  month: number;
-  day: number;
-  isCurrentMonth: boolean;
-  isToday: boolean;
-  dateString: string;
-}
-
-export interface StaffShiftStats {
-  staffId: number | string;
-  staffName: string;
-  totalRequests: number;
-  shiftTypeCounts: Record<string, number>;
+  warnings: string[];
 }
