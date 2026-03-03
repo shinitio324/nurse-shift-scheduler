@@ -166,3 +166,12 @@ export function useScheduleGenerator() {
 
   return { isGenerating, result, error, generateSchedule, saveSchedule, clearResult };
 }
+// ★ 追加: targetYear/targetMonth → year/month に正規化
+function resolveYearMonth(params: ScheduleGenerationParams): { year: number; month: number } {
+  const year  = params.year  ?? params.targetYear  ?? new Date().getFullYear();
+  const month = params.month ?? params.targetMonth ?? (new Date().getMonth() + 1);
+  return { year, month };
+}
+
+// generateSchedule 内でこれを使う
+const { year, month } = resolveYearMonth(params);
