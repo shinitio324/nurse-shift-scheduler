@@ -8,8 +8,23 @@ export interface Staff {
   name: string;
   position: string;
   employmentType: string;
+  qualifications: string[];
+  /**
+   * 月の最低勤務日数（0 = 制約なし）
+   * 休み・明け・有給はカウント対象外
+   */
+  minWorkDaysPerMonth: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface StaffFormData {
+  name: string;
+  position: string;
+  employmentType: string;
+  qualifications: string[];
+  /** 月の最低勤務日数（0 = 制約なし） */
+  minWorkDaysPerMonth: number;
 }
 
 // ============================================================
@@ -35,15 +50,9 @@ export interface ShiftPattern {
   startTime?: string;
   endTime?: string;
   isWorkday: boolean;
-  /**
-   * 明けシフトフラグ（夜勤翌日に自動割り当てされる特殊休み）
-   * 休み日数カウントの対象外
-   */
+  /** 明けシフトフラグ（夜勤翌日専用。休み日数カウント対象外） */
   isAke?: boolean;
-  /**
-   * 有給フラグ
-   * 休み日数カウントの対象外（別途カウント）
-   */
+  /** 有給フラグ（休み日数カウント対象外） */
   isVacation?: boolean;
   requiredStaff: number;
   createdAt: Date;
@@ -86,16 +95,12 @@ export interface ScheduleConstraints {
   maxConsecutiveNightShifts: number;
 
   // ─── 夜勤後 ───
-  /** 夜勤の翌日を「明け」として強制割り当て（休みカウント対象外） */
   nightShiftNextDayOff: boolean;
 
   // ─── 休日 ───
   minRestDaysPerWeek: number;
   minRestDaysPerMonth: number;
-  /**
-   * 月の「純休み」日数を固定値にする（明け・有給は含まない）
-   * 0 = 無効（minRestDaysPerMonth のみ適用）
-   */
+  /** 月の純休み日数を固定（0=無効） */
   exactRestDaysPerMonth: number;
 
   // ─── 夜勤回数 ───
@@ -155,8 +160,8 @@ export interface StaffWorkloadStat {
   totalShifts: number;
   nightShifts: number;
   restDays: number;
-  akeDays: number;        // 明け日数
-  vacationDays: number;   // 有給日数
+  akeDays: number;
+  vacationDays: number;
   consecutiveWorkDays: number;
   totalWorkHours: number;
 }
