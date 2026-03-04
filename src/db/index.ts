@@ -5,6 +5,7 @@ import type {
   ShiftPattern,
   ShiftRequest,
   ScheduleConstraints,
+  ScheduleConstraintRule,
   GeneratedShift,
 } from '../types';
 
@@ -13,12 +14,13 @@ export class NurseSchedulerDB extends Dexie {
   shiftPatterns!: Table<ShiftPattern, number>;
   shiftRequests!: Table<ShiftRequest, number>;
   constraints!: Table<ScheduleConstraints, number>;
+  scheduleConstraints!: Table<ScheduleConstraintRule, string>;
   generatedSchedules!: Table<GeneratedShift, number>;
 
   constructor() {
     super('NurseSchedulerDB');
 
-    // ⚠️ version(1) は既存ユーザーのために残す
+    // version(1): 初期スキーマ
     this.version(1).stores({
       staff:              '++id, name, role',
       shiftPatterns:      '++id, name',
@@ -26,13 +28,23 @@ export class NurseSchedulerDB extends Dexie {
       generatedSchedules: '++id, staffId, date, patternId',
     });
 
-    // ✅ version(2) で constraints テーブルを追加
+    // version(2): constraints テーブル追加
     this.version(2).stores({
       staff:              '++id, name, role',
       shiftPatterns:      '++id, name',
       shiftRequests:      '++id, staffId, date, patternId',
       constraints:        '++id',
       generatedSchedules: '++id, staffId, date, patternId',
+    });
+
+    // version(3): scheduleConstraints テーブル追加
+    this.version(3).stores({
+      staff:               '++id, name, role',
+      shiftPatterns:       '++id, name',
+      shiftRequests:       '++id, staffId, date, patternId',
+      constraints:         '++id',
+      scheduleConstraints: 'id, name, isActive, priority',
+      generatedSchedules:  '++id, staffId, date, patternId',
     });
   }
 }
@@ -47,43 +59,27 @@ export async function ensureDefaultPatterns(): Promise<void> {
     const defaults: Omit<ShiftPattern, 'id'>[] = [];
 
     if (!names.includes('日勤')) {
-      defaults.push({
-        name: '日勤', startTime: '09:00', endTime: '17:00',
-        color: '#bfdbfe', isAke: false, isVacation: false, isNight: false, requiredStaff: 2,
-      });
+      defaults.push({ name: '日勤', startTime: '09:00', endTime: '17:00', color: '#bfdbfe', isAke: false, isVacation: false, isNight: false, requiredStaff: 2 });
     }
     if (!names.includes('夜勤')) {
-      defaults.push({
-        name: '夜勤', startTime: '17:00', endTime: '09:00',
-        color: '#c4b5fd', isAke: false, isVacation: false, isNight: true, requiredStaff: 1,
-      });
+      defaults.push({ name: '夜勤', startTime: '17:00', endTime: '09:00', color: '#c4b5fd', isAke: false, isVacation: false, isNight: true, requiredStaff: 1 });
     }
     if (!names.includes('明け')) {
-      defaults.push({
-        name: '明け', startTime: '00:00', endTime: '00:00',
-        color: '#93c5fd', isAke: true, isVacation: false, isNight: false, requiredStaff: 0,
-      });
+      defaults.push({ name: '明け', startTime: '00:00', endTime: '00:00', color: '#93c5fd', isAke: true, isVacation: false, isNight: false, requiredStaff: 0 });
     }
     if (!names.includes('有給')) {
-      defaults.push({
-        name: '有給', startTime: '00:00', endTime: '00:00',
-        color: '#86efac', isAke: false, isVacation: true, isNight: false, requiredStaff: 0,
-      });
+      defaults.push({ name: '有給', startTime: '00:00', endTime: '00:00', color: '#86efac', isAke: false, isVacation: true, isNight: false, requiredStaff: 0 });
     }
     if (!names.includes('休み')) {
-      defaults.push({
-        name: '休み', startTime: '00:00', endTime: '00:00',
-        color: '#d1d5db', isAke: false, isVacation: false, isNight: false, requiredStaff: 0,
-      });
+      defaults.push({ name: '休み', startTime: '00:00', endTime: '00:00', color: '#d1d5db', isAke: false, isVacation: false, isNight: false, requiredStaff: 0 });
     }
     if (defaults.length > 0) {
       await db.shiftPatterns.bulkAdd(defaults as ShiftPattern[]);
-      console.log(`[DB] デフォルトパターン ${defaults.length}件 追加`);
     } else {
       console.log('[DB] 勤務パターンは既に初期化されています');
     }
 
-    // --- 制約 ---
+    // --- シンプル制約 ---
     const constraintCount = await db.constraints.count();
     if (constraintCount === 0) {
       await db.constraints.add({
@@ -92,13 +88,11 @@ export async function ensureDefaultPatterns(): Promise<void> {
         minWorkDaysPerMonth: 20,
         exactRestDaysPerMonth: 8,
       } as ScheduleConstraints);
-      console.log('[DB] デフォルト制約を追加しました');
-    } else {
-      console.log('[DB] 制約条件は既に初期化されています');
     }
 
     const staffCount = await db.staff.count();
     console.log(`[DB] スタッフを読み込みました: ${staffCount} 名`);
+    console.log('[DB] 制約条件は既に初期化されています');
     console.log('[DB] データベースの初期化が完了しました');
 
   } catch (err) {
