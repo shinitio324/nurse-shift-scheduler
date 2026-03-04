@@ -1,9 +1,6 @@
 // src/types/index.ts
-// ⚠️ このファイルは「型定義のみ」— ランタイムコードは一切書かない
 
-// ─────────────────────────────────────────────
-// スタッフ
-// ─────────────────────────────────────────────
+// ─── スタッフ ───────────────────────────────────────────────────
 export interface Staff {
   id?: number;
   name: string;
@@ -12,9 +9,7 @@ export interface Staff {
   maxConsecutiveWorkDays?: number;
 }
 
-// ─────────────────────────────────────────────
-// シフトパターン
-// ─────────────────────────────────────────────
+// ─── シフトパターン ──────────────────────────────────────────────
 export interface ShiftPattern {
   id?: number;
   name: string;
@@ -22,25 +17,21 @@ export interface ShiftPattern {
   endTime: string;
   color: string;
   requiredStaff: number;
-  isAke?: boolean;       // 明けフラグ
-  isVacation?: boolean;  // 有給フラグ
-  isNight?: boolean;     // 夜勤フラグ
+  isAke?: boolean;
+  isVacation?: boolean;
+  isNight?: boolean;
 }
 
-// ─────────────────────────────────────────────
-// シフトリクエスト
-// ─────────────────────────────────────────────
+// ─── シフト希望 ──────────────────────────────────────────────────
 export interface ShiftRequest {
   id?: number;
   staffId: number;
-  date: string;        // "YYYY-MM-DD"
+  date: string;
   patternId: number;
   note?: string;
 }
 
-// ─────────────────────────────────────────────
-// 制約
-// ─────────────────────────────────────────────
+// ─── 制約条件（シンプル版・自動生成用） ─────────────────────────
 export interface ScheduleConstraints {
   id?: number;
   maxConsecutiveWorkDays?: number;
@@ -49,30 +40,62 @@ export interface ScheduleConstraints {
   exactRestDaysPerMonth?: number;
 }
 
-// ─────────────────────────────────────────────
-// 生成済みシフト
-// ─────────────────────────────────────────────
+// ─── 制約条件（詳細版・ConstraintSettings用） ────────────────────
+export interface ScheduleConstraintRule {
+  id: string;
+  name: string;
+  description: string;
+  maxConsecutiveWorkDays: number;
+  maxConsecutiveNightShifts: number;
+  nightShiftNextDayOff: boolean;
+  minRestDaysPerWeek: number;
+  minRestDaysPerMonth: number;
+  exactRestDaysPerMonth: number;
+  maxNightShiftsPerWeek: number;
+  maxNightShiftsPerMonth: number;
+  maxWorkHoursPerWeek: number;
+  maxWorkHoursPerMonth: number;
+  isActive: boolean;
+  priority: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ConstraintsFormData {
+  name: string;
+  description: string;
+  maxConsecutiveWorkDays: number;
+  maxConsecutiveNightShifts: number;
+  nightShiftNextDayOff: boolean;
+  minRestDaysPerWeek: number;
+  minRestDaysPerMonth: number;
+  exactRestDaysPerMonth: number;
+  maxNightShiftsPerWeek: number;
+  maxNightShiftsPerMonth: number;
+  maxWorkHoursPerWeek: number;
+  maxWorkHoursPerMonth: number;
+  isActive: boolean;
+  priority: number;
+}
+
+// ─── 生成済みシフト ──────────────────────────────────────────────
 export interface GeneratedShift {
   id?: number;
   staffId: number;
-  date: string;        // "YYYY-MM-DD"
+  date: string;
   patternId: number;
   isManual: boolean;
 }
 
-// ─────────────────────────────────────────────
-// スケジュール生成パラメータ
-// ─────────────────────────────────────────────
+// ─── スケジュール生成パラメータ ──────────────────────────────────
 export interface ScheduleGenerationParams {
   year?: number;
   month?: number;
-  targetYear?: number;   // フォームからの互換用
-  targetMonth?: number;  // フォームからの互換用
+  targetYear?: number;
+  targetMonth?: number;
 }
 
-// ─────────────────────────────────────────────
-// スタッフ別ワークロード統計
-// ─────────────────────────────────────────────
+// ─── 統計 ────────────────────────────────────────────────────────
 export interface StaffWorkloadStat {
   staffId: number;
   staffName: string;
@@ -84,9 +107,6 @@ export interface StaffWorkloadStat {
   totalDays: number;
 }
 
-// ─────────────────────────────────────────────
-// スケジュール統計
-// ─────────────────────────────────────────────
 export interface ScheduleStatistics {
   totalDays: number;
   totalShifts: number;
@@ -94,9 +114,6 @@ export interface ScheduleStatistics {
   shiftTypeDistribution: Record<string, number>;
 }
 
-// ─────────────────────────────────────────────
-// 生成結果
-// ─────────────────────────────────────────────
 export interface ScheduleGenerationResult {
   schedule: GeneratedShift[];
   statistics: ScheduleStatistics;
