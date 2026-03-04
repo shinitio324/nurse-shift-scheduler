@@ -6,61 +6,78 @@ import type {
   ScheduleGenerationParams,
   ScheduleGenerationResult,
   GeneratedShift,
-  StaffWorkloadStat,
 } from '../types';
 
-// ✅ emptyResult は関数 — paramsを参照しない
-function makeEmptyResult(): ScheduleGenerationResult {
+const EMPTY_RESULT: ScheduleGenerationResult = {
+  schedule: [],
+  statistics: {
+    totalDays:             0,
+    totalShifts:           0,
+    staffWorkload:         [],   // ← 絶対にundefinedにならない
+    shiftTypeDistribution: {},
+  },
+  warnings: [],
+};
+
+// result を null-safe に正規化する
+function normalizeResult(raw: unknown): ScheduleGenerationResult {
+  if (!raw || typeof raw !== 'object') return EMPTY_RESULT;
+  const r = raw as any;
+
+  const schedule: GeneratedShift[] = Array.isArray(r.schedule) ? r.schedule : [];
+  const warnings: string[]         = Array.isArray(r.warnings) ? r.warnings : [];
+
+  const rawStats = r.statistics ?? {};
+  const staffWorkload = Array.isArray(rawStats.staffWorkload)
+    ? rawStats.staffWorkload
+    : [];
+  const shiftTypeDistribution =
+    rawStats.shiftTypeDistribution &&
+    typeof rawStats.shiftTypeDistribution === 'object'
+      ? rawStats.shiftTypeDistribution
+      : {};
+
   return {
-    schedule: [],
+    schedule,
+    warnings,
     statistics: {
-      totalDays: 0,
-      totalShifts: 0,
-      staffWorkload: [],
-      shiftTypeDistribution: {},
+      totalDays:             Number(rawStats.totalDays)    || 0,
+      totalShifts:           Number(rawStats.totalShifts)  || 0,
+      staffWorkload,
+      shiftTypeDistribution,
     },
-    warnings: [],
   };
 }
 
 export function useScheduleGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [result, setResult]             = useState<ScheduleGenerationResult>(makeEmptyResult());
+  const [result, setResult]             = useState<ScheduleGenerationResult>(EMPTY_RESULT);
   const [error, setError]               = useState<string | null>(null);
 
   const generateSchedule = useCallback(
     async (params: ScheduleGenerationParams) => {
       setIsGenerating(true);
       setError(null);
+
+      let safeResult = EMPTY_RESULT;
       try {
-        const generator = new ScheduleGenerator(params);
+        const generator = new ScheduleGenerator(params ?? {});
         const raw = await generator.generate();
-
-        // null-safe にresultを組み立て
-        const safeResult: ScheduleGenerationResult = {
-          schedule: Array.isArray(raw?.schedule) ? raw.schedule : [],
-          statistics: {
-            totalDays:   raw?.statistics?.totalDays   ?? 0,
-            totalShifts: raw?.statistics?.totalShifts ?? 0,
-            staffWorkload: Array.isArray(raw?.statistics?.staffWorkload)
-              ? raw.statistics.staffWorkload
-              : [],
-            shiftTypeDistribution:
-              raw?.statistics?.shiftTypeDistribution ?? {},
-          },
-          warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
-        };
-
-        setResult(safeResult);
-        return safeResult;
+        safeResult = normalizeResult(raw);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[useScheduleGenerator] エラー:', err);
         setError(msg);
-        return makeEmptyResult();
+        safeResult = {
+          ...EMPTY_RESULT,
+          warnings: [msg],
+        };
       } finally {
         setIsGenerating(false);
       }
+
+      setResult(safeResult);
+      return safeResult;
     },
     []
   );
@@ -68,18 +85,23 @@ export function useScheduleGenerator() {
   const saveSchedule = useCallback(
     async (schedule: GeneratedShift[], year: number, month: number) => {
       try {
-        // 同月のデータを削除してから保存
-        const prefix = `${year}-${String(month).padStart(2, '0')}`;
-        const old = await db.generatedSchedules
-          .where('date').startsWith(prefix)
-          .toArray();
-        const oldIds = old.map(s => s.id!).filter(Boolean);
-        if (oldIds.length > 0) await db.generatedSchedules.bulkDelete(oldIds);
+        const safeSchedule = Array.isArray(schedule) ? schedule : [];
+        const y = Number(year)  || new Date().getFullYear();
+        const m = Number(month) || (new Date().getMonth() + 1);
+        const prefix = `${y}-${String(m).padStart(2, '0')}`;
 
-        await db.generatedSchedules.bulkAdd(schedule);
-        console.log(`[save] ${schedule.length}件 保存完了`);
+        const old = await db.generatedSchedules
+          .where('date').startsWith(prefix).toArray().catch(() => []);
+        const ids = (old ?? []).map((s: any) => s.id).filter(Boolean);
+        if (ids.length > 0) {
+          await db.generatedSchedules.bulkDelete(ids).catch(() => {});
+        }
+        if (safeSchedule.length > 0) {
+          await db.generatedSchedules.bulkAdd(safeSchedule).catch(() => {});
+        }
+        console.log(`[save] ${safeSchedule.length}件 保存完了`);
       } catch (err) {
-        console.error('[save] 保存エラー:', err);
+        console.error('[save] エラー:', err);
         throw err;
       }
     },
