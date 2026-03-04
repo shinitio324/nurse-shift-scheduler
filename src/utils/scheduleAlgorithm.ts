@@ -71,10 +71,17 @@ async function fetchRequests(): Promise<ShiftRequest[]> {
 }
 async function fetchConstraints(): Promise<ScheduleConstraints> {
   try {
+    // db.constraints 自体が存在するか確認
+    if (!db.constraints || typeof db.constraints.orderBy !== 'function') {
+      console.warn('[DB] constraints テーブルが存在しません');
+      return {};
+    }
     const result = await db.constraints.orderBy('id').last();
     return (result && typeof result === 'object') ? result : {};
+  } catch (e) {
+    console.error('[DB] constraints 取得失敗:', e);
+    return {};
   }
-  catch (e) { console.error('[DB] constraints 取得失敗:', e); return {}; }
 }
 async function fetchPrevDayShifts(dateStr: string): Promise<GeneratedShift[]> {
   try {
