@@ -71,15 +71,16 @@ async function fetchRequests(): Promise<ShiftRequest[]> {
 }
 async function fetchConstraints(): Promise<ScheduleConstraints> {
   try {
-    // テーブル自体の存在確認
-    if (!db.constraints || typeof (db.constraints as any).orderBy !== 'function') {
-      console.warn('[DB] constraints テーブルが未定義 → デフォルト値を使用');
-      return {};
+    const tbl = (db as any).constraints;
+    if (!tbl || typeof tbl.toArray !== 'function') {
+      console.warn('[DB] constraints テーブルなし → デフォルト使用');
+      return { maxConsecutiveWorkDays: 5, minRestDaysBetweenNights: 1, minWorkDaysPerMonth: 20, exactRestDaysPerMonth: 8 };
     }
-    const result = await db.constraints.orderBy('id').last();
-    return (result && typeof result === 'object') ? result : {};
+    const all = await tbl.toArray();
+    if (!Array.isArray(all) || all.length === 0) return {};
+    return all[all.length - 1] as ScheduleConstraints;
   } catch (e) {
-    console.error('[DB] constraints 取得失敗 → デフォルト値を使用:', e);
+    console.error('[DB] constraints 取得失敗:', e);
     return {};
   }
 }
