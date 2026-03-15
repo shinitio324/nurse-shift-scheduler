@@ -1,3 +1,4 @@
+// src/App.tsx
 import { useState } from 'react';
 import { Calendar, Users, FileText, Settings, BarChart3, Download } from 'lucide-react';
 import { StaffList } from './components/StaffList';
@@ -12,12 +13,12 @@ import { StatisticsPanel } from './components/StatisticsPanel';
 import { ExportPanel } from './components/ExportPanel';
 import { useStaff } from './hooks/useStaff';
 import { useShiftRequests } from './hooks/useShiftRequests';
-import { ScheduleGenerationResult } from './types';
+import type { ScheduleGenerationResult } from './types';
 
 type TabType = 'calendar' | 'staff' | 'requests' | 'statistics' | 'export' | 'settings';
 
 export default function App() {
-  // ★ 保存後リロード時に統計タブへ自動遷移するための sessionStorage 復元
+  // 保存後リロード時に統計タブへ自動遷移
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const pending = sessionStorage.getItem('afterSaveTab') as TabType | null;
     if (pending) {
@@ -30,25 +31,36 @@ export default function App() {
   const [showPreview,    setShowPreview]    = useState(false);
   const [scheduleResult, setScheduleResult] = useState<ScheduleGenerationResult | null>(null);
 
+  // 生成時の年月を保持（SchedulePreview に渡すため）
+  const [previewYear,  setPreviewYear]  = useState<number>(new Date().getFullYear());
+  const [previewMonth, setPreviewMonth] = useState<number>(new Date().getMonth() + 1);
+
   const { staff,         loading: staffLoading  } = useStaff();
   const { shiftRequests, loading: shiftsLoading } = useShiftRequests();
 
-  const tabs = [
-    { id: 'calendar'   as TabType, label: '勤務表',      icon: Calendar  },
-    { id: 'staff'      as TabType, label: 'スタッフ管理', icon: Users     },
-    { id: 'requests'   as TabType, label: 'シフト入力',   icon: FileText  },
-    { id: 'statistics' as TabType, label: '統計',         icon: BarChart3 },
-    { id: 'export'     as TabType, label: 'エクスポート', icon: Download  },
-    { id: 'settings'   as TabType, label: '設定',         icon: Settings  },
+  const tabs: { id: TabType; label: string; icon: React.ElementType }[] = [
+    { id: 'calendar',   label: '勤務表',      icon: Calendar  },
+    { id: 'staff',      label: 'スタッフ管理', icon: Users     },
+    { id: 'requests',   label: 'シフト入力',   icon: FileText  },
+    { id: 'statistics', label: '統計',         icon: BarChart3 },
+    { id: 'export',     label: 'エクスポート', icon: Download  },
+    { id: 'settings',   label: '設定',         icon: Settings  },
   ];
 
-  const handleScheduleGenerated = (result: ScheduleGenerationResult) => {
-    console.log('✅ App.tsx: 生成結果を受信', result.schedules.length, '件');
+  // ✅ result.schedule（正しいフィールド名）を使用
+  const handleScheduleGenerated = (
+    result: ScheduleGenerationResult,
+    year?: number,
+    month?: number,
+  ) => {
+    const count = result?.schedule?.length ?? 0;
+    console.log('✅ App.tsx: 生成結果を受信', count, '件');
     setScheduleResult(result);
+    if (year  != null) setPreviewYear(year);
+    if (month != null) setPreviewMonth(month);
     setShowPreview(true);
   };
 
-  // ★ 保存後は sessionStorage に統計タブを記録してからリロード
   const handleScheduleSaved = () => {
     console.log('💾 スケジュール保存完了 → 統計タブへ遷移');
     setScheduleResult(null);
@@ -69,6 +81,8 @@ export default function App() {
       return (
         <SchedulePreview
           result={scheduleResult}
+          year={previewYear}
+          month={previewMonth}
           onSave={handleScheduleSaved}
           onCancel={handleScheduleCancelled}
         />
@@ -83,10 +97,8 @@ export default function App() {
             <CalendarView />
           </div>
         );
-
       case 'staff':
         return <StaffList />;
-
       case 'requests':
         return (
           <div className="space-y-6">
@@ -96,13 +108,10 @@ export default function App() {
             </div>
           </div>
         );
-
       case 'statistics':
         return <StatisticsPanel />;
-
       case 'export':
         return <ExportPanel />;
-
       case 'settings':
         return (
           <div className="space-y-6">
@@ -112,7 +121,6 @@ export default function App() {
             </div>
           </div>
         );
-
       default:
         return null;
     }
@@ -121,7 +129,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
 
-      {/* ── ヘッダー ── */}
+      {/* ヘッダー */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -154,7 +162,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── ナビゲーション ── */}
+      {/* ナビゲーション */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-1 overflow-x-auto">
@@ -182,12 +190,12 @@ export default function App() {
         </div>
       </nav>
 
-      {/* ── メインコンテンツ ── */}
+      {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
 
-      {/* ── フッター ── */}
+      {/* フッター */}
       <footer className="bg-white border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-600">
