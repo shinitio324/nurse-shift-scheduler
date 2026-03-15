@@ -131,5 +131,6 @@ export async function ensureDefaultPatterns(): Promise<void> {
     console.error('[DB] ensureDefaultPatterns エラー:', err);
   }
 }
+
 // src/main.tsx との後方互換性のためのエイリアス
 export const initializeDatabase = ensureDefaultPatterns;
