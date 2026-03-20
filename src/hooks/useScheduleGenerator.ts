@@ -108,7 +108,6 @@ export function useScheduleGenerator() {
         const safeSchedule = normalizeGeneratedShiftArray(schedule);
         const prefix = `${year}-${String(month).padStart(2, '0')}`;
 
-        // 対象月の既存 generatedSchedules を削除
         const old = await db.generatedSchedules
           .where('date')
           .startsWith(prefix)
