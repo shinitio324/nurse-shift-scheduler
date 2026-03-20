@@ -32,8 +32,8 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
     db.staff.toArray().then(setStaff).catch(() => setStaff([]));
   }, []);
 
-  const getPattern = (patternId: number): ShiftPattern | undefined =>
-    patterns.find(p => p?.id === patternId);
+ const getPattern = (patternId: number | string): ShiftPattern | undefined =>
+  patterns.find(p => p?.id != null && String(p.id) === String(patternId));
 
   const getShiftColor = (patternId: number): string =>
     getPattern(patternId)?.color ?? '#e5e7eb';
@@ -41,8 +41,9 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
   const getShiftName = (patternId: number): string =>
     getPattern(patternId)?.name ?? '-';
 
-  const getStaffName = (staffId: number): string =>
-    staff.find(s => s?.id === staffId)?.name ?? `ID:${staffId}`;
+ const getStaffName = (staffId: number | string): string =>
+  staff.find(s => s?.id != null && String(s.id) === String(staffId))?.name
+  ?? `ID:${staffId}`;
 
   // 日付リスト
   const days = result?.statistics?.totalDays ?? 0;
