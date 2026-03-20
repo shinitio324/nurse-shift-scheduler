@@ -39,7 +39,6 @@ interface TabItem {
 }
 
 export default function App() {
-  // 保存後リロード時に統計タブへ自動遷移
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const pending = sessionStorage.getItem('afterSaveTab') as TabType | null;
     if (pending) {
@@ -53,7 +52,6 @@ export default function App() {
   const [scheduleResult, setScheduleResult] =
     useState<ScheduleGenerationResult | null>(null);
 
-  // 生成時の年月を保持（SchedulePreview に渡すため）
   const [previewYear, setPreviewYear] = useState<number>(
     new Date().getFullYear()
   );
