@@ -16,6 +16,7 @@ export const AKE_NAME = '明け';
 export const VACATION_NAME = '有給';
 export const REST_NAME = '休み';
 
+/** DBに不足している場合だけ補完するデフォルトパターン */
 const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
   {
     name: '日勤',
@@ -154,11 +155,13 @@ function toNumericId(id: unknown): number | null {
 }
 
 function normalizeGender(gender: unknown): StaffGender | '未設定' {
-  if (gender === '男性' || gender === '女性' || gender === 'その他') return gender;
+  if (gender === '男性' || gender === '女性' || gender === 'その他') {
+    return gender;
+  }
   return '未設定';
 }
 
-// ─── DBパターン補完 ──────────────────────────────────────────
+// ─── DBパターン補完 ─────────────────────────────────────────
 async function ensurePatternsInDB(): Promise<void> {
   try {
     const existing = await db.shiftPatterns.toArray();
@@ -297,6 +300,7 @@ export class ScheduleGenerator {
         `[SG] DB取得完了 patterns=${patterns.length} staff=${staff.length} requests=${requests.length}`
       );
 
+      // パターンID解決
       const nightPat =
         patterns.find((p) => p?.isNight === true || p?.name === '夜勤') ?? null;
       const akePat =
@@ -438,6 +442,7 @@ export class ScheduleGenerator {
         console.error('[SG] checkMinWork:', e);
       }
 
+      // 統計
       let statistics: ScheduleStatistics;
       try {
         statistics = this.calcStats(schedule, staff, patterns, dates);
@@ -549,6 +554,7 @@ export class ScheduleGenerator {
     const isFirst = currentDate.getDate() === 1;
     const prevStr = formatDate(addDays(currentDate, -1));
 
+    // その日に本人希望がある場合は希望優先
     const requestedStaffKeys = new Set(
       requests
         .filter((r) => r?.date === dateStr && r?.staffId != null)
@@ -616,6 +622,7 @@ export class ScheduleGenerator {
       const key = idKey(m.id);
       if (busyKeys.has(key)) return false;
 
+      // 夜勤間隔
       if (minRestBetweenNights > 0) {
         const lastNight = this.lastNightDate.get(key);
         if (lastNight) {
@@ -625,6 +632,7 @@ export class ScheduleGenerator {
         }
       }
 
+      // 個別夜勤上限 or 全体夜勤上限
       const currentNightCount = this.nightCount.get(key) ?? 0;
       const personalMax = safeNumber((m as any)?.maxNightShiftsPerMonth, 0);
       const effectiveMax =
@@ -644,14 +652,17 @@ export class ScheduleGenerator {
         const aKey = idKey(a.id);
         const bKey = idKey(b.id);
 
+        // 夜勤希望者優先
         const aReq = nightRequesters.has(aKey) ? 0 : 1;
         const bReq = nightRequesters.has(bKey) ? 0 : 1;
         if (aReq !== bReq) return aReq - bReq;
 
+        // 夜勤回数が少ない人優先
         const aNight = this.nightCount.get(aKey) ?? 0;
         const bNight = this.nightCount.get(bKey) ?? 0;
         if (aNight !== bNight) return aNight - bNight;
 
+        // 名前順
         return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ja');
       });
     };
@@ -663,15 +674,13 @@ export class ScheduleGenerator {
       const remaining = sortBase(
         candidates.filter((c) => !selectedKeys.has(idKey(c.id)))
       );
+
       if (remaining.length === 0) break;
 
       let chosen: Staff | undefined;
 
-      if (
-        preferMixedGenderNightShift &&
-        required >= 2 &&
-        selected.length > 0
-      ) {
+      // 男女ペア優先（必要人数が2以上、かつ既に1人以上選ばれているとき）
+      if (preferMixedGenderNightShift && required >= 2 && selected.length > 0) {
         const selectedGenders = new Set(
           selected.map((s) => normalizeGender((s as any)?.gender))
         );
@@ -686,11 +695,14 @@ export class ScheduleGenerator {
               (c) => normalizeGender((c as any)?.gender) === targetGender
             );
 
-            chosen = mixedCandidates[0];
+            if (mixedCandidates.length > 0) {
+              chosen = mixedCandidates[0];
+            }
           }
         }
       }
 
+      // 男女優先で選べなければ通常候補の先頭
       if (!chosen) {
         chosen = remaining[0];
       }
@@ -818,7 +830,11 @@ export class ScheduleGenerator {
     warnings: string[]
   ): void {
     const globalMinDays = safeNumber((constraints as any)?.minWorkDaysPerMonth, 0);
-    if (globalMinDays <= 0 && !staff.some((s) => safeNumber(s.minWorkDaysPerMonth, 0) > 0)) {
+
+    if (
+      globalMinDays <= 0 &&
+      !staff.some((s) => safeNumber(s.minWorkDaysPerMonth, 0) > 0)
+    ) {
       return;
     }
 
@@ -939,7 +955,10 @@ export class ScheduleGenerator {
       (s) => sameId(s?.staffId, staffId) && s?.date === date
     );
     const entry: GeneratedShift = { staffId, date, patternId, isManual };
-    if (idx >= 0) schedule[idx] = entry;
-    else schedule.push(entry);
+    if (idx >= 0) {
+      schedule[idx] = entry;
+    } else {
+      schedule.push(entry);
+    }
   }
 }
