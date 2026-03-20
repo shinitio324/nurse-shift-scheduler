@@ -68,6 +68,17 @@ export class NurseSchedulerDB extends Dexie {
       constraints: '++id',
       generatedSchedules: '++id, staffId, date, patternId',
     });
+
+    // ★ v6: gender / maxNightShiftsPerMonth を staff に追加
+    this.version(6).stores({
+      staff: 'id, name, position, employmentType, gender, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
+      shifts: 'id, staffId, date, shiftType, createdAt',
+      shiftPatterns: '++id, name',
+      scheduleConstraints: 'id, name, isActive, priority, createdAt',
+      shiftRequests: '++id, staffId, date, patternId',
+      constraints: '++id',
+      generatedSchedules: '++id, staffId, date, patternId',
+    });
   }
 }
 
@@ -142,7 +153,7 @@ export const DEFAULT_PATTERNS = [
   },
 ] as const;
 
-// ── 起動時パターン／制約補完 ─────────────────────────────────
+// ── 初期補完 ────────────────────────────────────────────────
 export async function ensureDefaultPatterns(): Promise<void> {
   try {
     // shiftPatterns 補完
@@ -200,15 +211,26 @@ export async function ensureDefaultPatterns(): Promise<void> {
           minWorkDaysPerMonth: 20,
           exactRestDaysPerMonth: 8,
           restAfterAke: true,
+          maxNightShiftsPerMonth: 8,
+          preferMixedGenderNightShift: true,
         } as any);
         console.log('[DB] デフォルト制約を追加しました');
       } else {
         const latest = allConstraints[allConstraints.length - 1];
-        if (latest?.id != null && latest.restAfterAke === undefined) {
+        if (latest?.id != null) {
           await db.constraints.update(latest.id as number, {
-            restAfterAke: true,
+            restAfterAke:
+              latest.restAfterAke === undefined ? true : latest.restAfterAke,
+            maxNightShiftsPerMonth:
+              latest.maxNightShiftsPerMonth === undefined
+                ? 8
+                : latest.maxNightShiftsPerMonth,
+            preferMixedGenderNightShift:
+              latest.preferMixedGenderNightShift === undefined
+                ? true
+                : latest.preferMixedGenderNightShift,
           });
-          console.log('[DB] restAfterAke を既存制約へ補完しました');
+          console.log('[DB] 制約不足項目を補完しました');
         }
       }
     } catch (e) {
