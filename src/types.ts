@@ -1,91 +1,168 @@
-// スタッフの型定義
+// src/types.ts
+// ============================================================
+// ★ 完全修正版 ★
+// scheduleAlgorithm.ts / db/index.ts / useScheduleGenerator.ts
+// / SchedulePreview.tsx すべてと整合させた型定義
+// ============================================================
+
+// ── スタッフ ────────────────────────────────────────────────
 export interface Staff {
   id: string;
   name: string;
   position: '正看護師' | '准看護師' | '看護助手' | 'その他';
   employmentType: '常勤' | '非常勤' | 'パート';
   qualifications: string[];
+  minWorkDaysPerMonth?: number; // 個人別最低勤務日数（0 = 制約なし）
   createdAt: Date;
   updatedAt: Date;
 }
 
-// シフトの型定義 ★ shiftType を string に変更（カスタムパターン対応）
-export interface Shift {
-  id: string;
-  staffId: string;
-  date: string; // YYYY-MM-DD
-  shiftType: string; // ★ 修正: 固定ユニオン → string（カスタムパターン対応）
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// シフト種別の型 ★ string に変更
-export type ShiftType = string; // ★ 修正: カスタムパターンを許容
-
-// スタッフフォームの入力値
 export interface StaffFormData {
   name: string;
   position: Staff['position'];
   employmentType: Staff['employmentType'];
   qualifications: string[];
+  minWorkDaysPerMonth?: number;
 }
 
-// 勤務パターンの型定義
+// ── 勤務パターン（新旧両対応）────────────────────────────────
 export interface ShiftPattern {
-  id: string;
+  id?: number | string;   // ++id 自動採番（数値）or 旧UUID文字列
   name: string;
-  shortName: string;
+  shortName?: string;     // 旧互換
   startTime: string;
   endTime: string;
   requiredStaff: number;
   color: string;
-  isWorkday: boolean;
-  sortOrder: number;
-  createdAt: Date;
-  updatedAt: Date;
+  isNight?: boolean;      // 夜勤フラグ ★追加
+  isAke?: boolean;        // 明けフラグ ★追加
+  isVacation?: boolean;   // 有給フラグ ★追加
+  isWorkday?: boolean;    // 旧互換
+  sortOrder?: number;     // 旧互換
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-// 勤務パターンフォームの入力値
 export interface ShiftPatternFormData {
   name: string;
-  shortName: string;
+  shortName?: string;
   startTime: string;
   endTime: string;
   requiredStaff: number;
   color: string;
-  isWorkday: boolean;
+  isNight?: boolean;
+  isAke?: boolean;
+  isVacation?: boolean;
+  isWorkday?: boolean;
 }
 
-// スタッフのシフト割り当て
-export interface StaffShift {
+// ── シフト（旧 shifts テーブル）──────────────────────────────
+export interface Shift {
   id: string;
   staffId: string;
-  date: string;
-  shiftPatternId: string;
+  date: string;       // YYYY-MM-DD
+  shiftType: string;
   createdAt: Date;
   updatedAt: Date;
 }
+export type ShiftType = string;
 
-// ★ 修正: ShiftRequestを一本化（重複定義を削除、Shiftを拡張）
+// ── シフトリクエスト ──────────────────────────────────────────
 export interface ShiftRequest extends Shift {
+  patternId?: number | string; // スケジュール生成用パターンID
   staffName?: string;
   status: ShiftRequestStatus;
   note?: string;
   requestedAt: Date;
 }
-
-// シフトリクエストフォームデータ
 export interface ShiftRequestFormData {
   staffId: string;
   date: string;
-  shiftType: string; // ★ 修正: string型
+  shiftType: string;
   note?: string;
 }
-
-// シフトリクエストの状態
 export type ShiftRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
-// カレンダー日付情報
+// ── 生成済みシフト（generatedSchedules テーブル）★新規追加
+export interface GeneratedShift {
+  id?: number;
+  staffId: string | number; // 実行時は UUID 文字列
+  date: string;             // YYYY-MM-DD
+  patternId: number;
+  isManual: boolean;
+}
+
+// ── スケジュール制約（constraints テーブル）★修正
+export interface ScheduleConstraints {
+  id?: number | string;
+  // ▼ scheduleAlgorithm.ts が使用するフィールド
+  maxConsecutiveWorkDays?: number;
+  minRestDaysBetweenNights?: number;
+  minWorkDaysPerMonth?: number;
+  exactRestDaysPerMonth?: number;
+  // ▼ 旧互換フィールド
+  name?: string;
+  description?: string;
+  maxConsecutiveNightShifts?: number;
+  minRestDaysPerWeek?: number;
+  minRestDaysPerMonth?: number;
+  maxNightShiftsPerWeek?: number;
+  maxNightShiftsPerMonth?: number;
+  maxWorkHoursPerWeek?: number;
+  maxWorkHoursPerMonth?: number;
+  isActive?: boolean;
+  priority?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface ConstraintsFormData {
+  maxConsecutiveWorkDays: number;
+  minRestDaysBetweenNights: number;
+  minWorkDaysPerMonth: number;
+  exactRestDaysPerMonth: number;
+}
+
+// ── スケジュール生成パラメータ ★修正（旧新両対応）────────────
+export interface ScheduleGenerationParams {
+  year?: number;        // 新フィールド
+  month?: number;       // 新フィールド
+  targetYear?: number;  // 旧互換
+  targetMonth?: number; // 旧互換
+  constraintIds?: string[];
+  prioritizeRequests?: boolean;
+  balanceWorkload?: boolean;
+  balanceNightShifts?: boolean;
+}
+
+// ── スタッフ別集計 ★新規追加 ─────────────────────────────────
+export interface StaffWorkloadStat {
+  staffId: string | number;
+  staffName: string;
+  workDays: number;
+  nightDays: number;
+  akeDays: number;
+  vacationDays: number;
+  restDays: number;
+  totalDays: number;
+}
+
+// ── スケジュール統計 ★修正 ────────────────────────────────────
+export interface ScheduleStatistics {
+  totalDays: number;
+  totalShifts: number;
+  staffWorkload: StaffWorkloadStat[];
+  shiftTypeDistribution: Record<string, number>; // ★ 配列→オブジェクト
+}
+
+// ── スケジュール生成結果 ★完全修正 ────────────────────────────
+export interface ScheduleGenerationResult {
+  schedule: GeneratedShift[];  // ★ schedules → schedule
+  statistics: ScheduleStatistics;
+  warnings: string[];          // ★ violations → warnings
+}
+
+// ── カレンダー ────────────────────────────────────────────────
 export interface CalendarDate {
   date: Date;
   dateString: string;
@@ -95,7 +172,15 @@ export interface CalendarDate {
   shiftRequests: ShiftRequest[];
 }
 
-// スタッフのシフト統計
+// ── 旧互換型（削除すると他コンポーネントが壊れる可能性のあるもの）
+export interface StaffShift {
+  id: string;
+  staffId: string;
+  date: string;
+  shiftPatternId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 export interface StaffShiftStats {
   staffId: string;
   staffName: string;
@@ -106,46 +191,6 @@ export interface StaffShiftStats {
   totalWorkHours: number;
   consecutiveWorkDays: number;
 }
-
-// ========================================
-// Phase 3-2: 制約条件とバリデーション
-// ========================================
-export interface ScheduleConstraints {
-  id: string;
-  name: string;
-  description: string;
-  maxConsecutiveWorkDays: number;
-  maxConsecutiveNightShifts: number;
-  minRestDaysPerWeek: number;
-  minRestDaysPerMonth: number;
-  maxNightShiftsPerWeek: number;
-  maxNightShiftsPerMonth: number;
-  maxWorkHoursPerWeek: number;
-  maxWorkHoursPerMonth: number;
-  isActive: boolean;
-  priority: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface ConstraintsFormData {
-  name: string;
-  description: string;
-  maxConsecutiveWorkDays: number;
-  maxConsecutiveNightShifts: number;
-  minRestDaysPerWeek: number;
-  minRestDaysPerMonth: number;
-  maxNightShiftsPerWeek: number;
-  maxNightShiftsPerMonth: number;
-  maxWorkHoursPerWeek: number;
-  maxWorkHoursPerMonth: number;
-  isActive: boolean;
-  priority: number;
-}
-
-// ========================================
-// Phase 3-3: 自動スケジュール生成
-// ========================================
 export interface GeneratedSchedule {
   id: string;
   date: string;
@@ -157,50 +202,16 @@ export interface GeneratedSchedule {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface ScheduleGenerationParams {
-  targetYear: number;
-  targetMonth: number;
-  constraintIds: string[];
-  prioritizeRequests: boolean;
-  balanceWorkload: boolean;
-  balanceNightShifts: boolean;
-}
-
-export interface ScheduleGenerationResult {
-  schedules: GeneratedSchedule[];
-  statistics: ScheduleStatistics;
-  violations: ConstraintViolation[];
-  generatedAt: Date;
-}
-
-export interface ScheduleStatistics {
-  totalDays: number;
-  totalShifts: number;
-  staffWorkload: {
-    staffId: string;
-    staffName: string;
-    totalShifts: number;
-    nightShifts: number;
-    restDays: number;
-    consecutiveWorkDays: number;
-    totalWorkHours: number;
-  }[];
-  shiftTypeDistribution: {
-    shiftType: string;
-    count: number;
-    requiredStaff: number;
-    actualStaff: number;
-  }[];
-}
-
 export interface ConstraintViolation {
   date: string;
   staffId: string;
   staffName: string;
   constraintName: string;
-  violationType: 'consecutive_work' | 'consecutive_night' | 'rest_days' | 
-                 'night_shifts' | 'work_hours' | 'required_staff';
+  violationType:
+    | 'consecutive_work' | 'consecutive_night' | 'rest_days'
+    | 'night_shifts'     | 'work_hours'         | 'required_staff';
   severity: 'error' | 'warning';
   message: string;
 }
+// 旧 ScheduleConstraintRule（db/index.ts が import している）
+export type ScheduleConstraintRule = ScheduleConstraints;
