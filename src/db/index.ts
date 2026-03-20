@@ -152,6 +152,7 @@ export async function ensureDefaultPatterns(): Promise<void> {
           minRestDaysBetweenNights: 1,
           minWorkDaysPerMonth:      20,
           exactRestDaysPerMonth:    8,
+          restAfterAke:　　 true,
         } as any);
         console.log('[DB] デフォルト制約を追加しました');
       }
