@@ -373,4 +373,73 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
       {displayedStaff.length > 0 && dates.length > 0 && (
         <div className="mx-5 mb-5">
           <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
-            <Calendar className="
+            <Calendar className="h-4 w-4" />
+            カレンダープレビュー
+          </h3>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="sticky left-0 z-10 whitespace-nowrap bg-gray-50 px-3 py-2 text-left font-medium text-gray-500">
+                    スタッフ
+                  </th>
+                  {dates.map((d) => {
+                    const day = new Date(d).getDay();
+                    const isHoliday = day === 0 || day === 6;
+                    return (
+                      <th
+                        key={d}
+                        className={`whitespace-nowrap px-1.5 py-2 text-center font-medium ${
+                          isHoliday ? 'text-red-500' : 'text-gray-500'
+                        }`}
+                      >
+                        {new Date(d).getDate()}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-gray-100">
+                {displayedStaff.map((member) => {
+                  if (member?.id == null) return null;
+
+                  const memberKey = toIdKey(member.id);
+
+                  return (
+                    <tr key={memberKey} className="hover:bg-gray-50">
+                      <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-1.5 font-medium text-gray-800">
+                        {member.name}
+                      </td>
+
+                      {dates.map((d) => {
+                        const pid = scheduleByDateAndStaff[d]?.[memberKey];
+                        const color = pid != null ? getShiftColor(pid) : '#f3f4f6';
+                        const name = pid != null ? getShiftName(pid) : '';
+
+                        return (
+                          <td key={`${memberKey}-${d}`} className="px-1 py-1">
+                            <div
+                              className="flex h-6 w-8 items-center justify-center rounded text-[10px] font-medium text-gray-700"
+                              style={{ backgroundColor: color }}
+                              title={name || '未割当'}
+                            >
+                              {name ? name.slice(0, 2) : ''}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SchedulePreview;
