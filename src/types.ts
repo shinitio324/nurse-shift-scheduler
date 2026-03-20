@@ -1,8 +1,9 @@
 // ============================================================
 // 完全修正版 types.ts
-// scheduleAlgorithm.ts / db/index.ts / useScheduleGenerator.ts
-// / SchedulePreview.tsx / App.tsx と整合
+// 男女ペア夜勤優先 / 個別夜勤上限 / 明け翌日休み 対応版
 // ============================================================
+
+export type StaffGender = '男性' | '女性' | 'その他';
 
 // ── スタッフ ────────────────────────────────────────────────
 export interface Staff {
@@ -11,7 +12,12 @@ export interface Staff {
   position: '正看護師' | '准看護師' | '看護助手' | 'その他';
   employmentType: '常勤' | '非常勤' | 'パート';
   qualifications: string[];
+
+  // ★ 追加
+  gender?: StaffGender;
   minWorkDaysPerMonth?: number;
+  maxNightShiftsPerMonth?: number; // 0 or undefined = 全体設定を使用
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,7 +27,11 @@ export interface StaffFormData {
   position: Staff['position'];
   employmentType: Staff['employmentType'];
   qualifications: string[];
+
+  // ★ 追加
+  gender?: StaffGender;
   minWorkDaysPerMonth?: number;
+  maxNightShiftsPerMonth?: number;
 }
 
 // ── 勤務パターン ───────────────────────────────────────────
@@ -93,7 +103,7 @@ export type ShiftRequestStatus =
 export interface GeneratedShift {
   id?: number;
   staffId: string | number;
-  date: string; // YYYY-MM-DD
+  date: string;
   patternId: number;
   isManual: boolean;
 }
@@ -108,6 +118,10 @@ export interface ScheduleConstraints {
   exactRestDaysPerMonth?: number;
   restAfterAke?: boolean;
 
+  // ★ 追加
+  maxNightShiftsPerMonth?: number;          // 全体デフォルト上限
+  preferMixedGenderNightShift?: boolean;    // 男女ペア優先
+
   // 旧互換
   name?: string;
   description?: string;
@@ -115,7 +129,6 @@ export interface ScheduleConstraints {
   minRestDaysPerWeek?: number;
   minRestDaysPerMonth?: number;
   maxNightShiftsPerWeek?: number;
-  maxNightShiftsPerMonth?: number;
   maxWorkHoursPerWeek?: number;
   maxWorkHoursPerMonth?: number;
   isActive?: boolean;
@@ -130,6 +143,8 @@ export interface ConstraintsFormData {
   minWorkDaysPerMonth: number;
   exactRestDaysPerMonth: number;
   restAfterAke?: boolean;
+  maxNightShiftsPerMonth?: number;
+  preferMixedGenderNightShift?: boolean;
 }
 
 // ── スケジュール生成パラメータ ─────────────────────────────
