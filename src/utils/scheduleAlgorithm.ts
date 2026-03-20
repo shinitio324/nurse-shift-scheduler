@@ -9,13 +9,13 @@ import type {
   ScheduleGenerationResult,
   ScheduleStatistics,
   StaffWorkloadStat,
+  StaffGender,
 } from '../types';
 
 export const AKE_NAME = '明け';
 export const VACATION_NAME = '有給';
 export const REST_NAME = '休み';
 
-/** DBに不足している場合だけ補完するデフォルトパターン */
 const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
   {
     name: '日勤',
@@ -153,6 +153,11 @@ function toNumericId(id: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeGender(gender: unknown): StaffGender | '未設定' {
+  if (gender === '男性' || gender === '女性' || gender === 'その他') return gender;
+  return '未設定';
+}
+
 // ─── DBパターン補完 ──────────────────────────────────────────
 async function ensurePatternsInDB(): Promise<void> {
   try {
@@ -214,6 +219,8 @@ async function fetchConstraints(): Promise<ScheduleConstraints> {
     minWorkDaysPerMonth: 20,
     exactRestDaysPerMonth: 8,
     restAfterAke: true,
+    maxNightShiftsPerMonth: 8,
+    preferMixedGenderNightShift: true,
   };
 
   try {
@@ -241,7 +248,9 @@ async function fetchPrevDayShifts(dateStr: string): Promise<GeneratedShift[]> {
     if (!dateStr) return [];
     const tbl = (db as any).generatedSchedules;
     if (!tbl || typeof tbl.where !== 'function') return [];
-    return safeArray<GeneratedShift>(await tbl.where('date').equals(dateStr).toArray());
+    return safeArray<GeneratedShift>(
+      await tbl.where('date').equals(dateStr).toArray()
+    );
   } catch (e) {
     console.warn('[DB] 前日シフト取得失敗:', e);
     return [];
@@ -288,7 +297,6 @@ export class ScheduleGenerator {
         `[SG] DB取得完了 patterns=${patterns.length} staff=${staff.length} requests=${requests.length}`
       );
 
-      // パターンID解決
       const nightPat =
         patterns.find((p) => p?.isNight === true || p?.name === '夜勤') ?? null;
       const akePat =
@@ -335,6 +343,12 @@ export class ScheduleGenerator {
       const nightRequired = safeNumber(nightPat?.requiredStaff, 1);
       const dates = getMonthDates(this.year, this.month);
       const restAfterAke = Boolean((constraints as any)?.restAfterAke);
+      const globalMaxNightShiftsPerMonth = safeNumber(
+        (constraints as any)?.maxNightShiftsPerMonth,
+        0
+      );
+      const preferMixedGenderNightShift =
+        (constraints as any)?.preferMixedGenderNightShift !== false;
 
       if (dates.length === 0) return makeEmptyResult(['year/month が不正です']);
       if (staff.length === 0) return makeEmptyResult(['スタッフが登録されていません']);
@@ -376,7 +390,6 @@ export class ScheduleGenerator {
         }
 
         try {
-          console.log(`[SG] restAfterAke=${restAfterAke} date=${dateStr}`);
           if (restAfterAke) {
             this.applyRestAfterAke(dateStr, schedule, staff, patterns, requests);
           }
@@ -392,7 +405,9 @@ export class ScheduleGenerator {
               staff,
               requests,
               nightRequired,
-              minRestBetweenNights
+              minRestBetweenNights,
+              globalMaxNightShiftsPerMonth,
+              preferMixedGenderNightShift
             );
           } catch (e) {
             console.error(`[SG] assignNight ${dateStr}:`, e);
@@ -423,7 +438,6 @@ export class ScheduleGenerator {
         console.error('[SG] checkMinWork:', e);
       }
 
-      // 統計
       let statistics: ScheduleStatistics;
       try {
         statistics = this.calcStats(schedule, staff, patterns, dates);
@@ -445,7 +459,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 前月末の持ち越し読み込み ──────────────────────────────
+  // ─── 前月末持ち越し読み込み ───────────────────────────────
   private async loadPrevMonthCarryOver(patterns: ShiftPattern[]): Promise<void> {
     try {
       const pm = this.month === 1 ? 12 : this.month - 1;
@@ -531,13 +545,10 @@ export class ScheduleGenerator {
     if (this.restPatternId === null) return;
     if (this.akePatternId === null) return;
 
-    console.log(`[SG] applyRestAfterAke start ${dateStr}`);
-
     const currentDate = new Date(dateStr);
     const isFirst = currentDate.getDate() === 1;
     const prevStr = formatDate(addDays(currentDate, -1));
 
-    // その日に本人希望がある場合は希望優先
     const requestedStaffKeys = new Set(
       requests
         .filter((r) => r?.date === dateStr && r?.staffId != null)
@@ -566,7 +577,6 @@ export class ScheduleGenerator {
       }
 
       if (needsRest) {
-        console.log(`[SG] 明け翌日休み適用 staff=${mid} date=${dateStr}`);
         this.overwriteEntry(schedule, mid, dateStr, this.restPatternId, false);
       }
     }
@@ -579,7 +589,9 @@ export class ScheduleGenerator {
     staff: Staff[],
     requests: ShiftRequest[],
     required: number,
-    minRestBetweenNights: number
+    minRestBetweenNights: number,
+    globalMaxNightShiftsPerMonth: number,
+    preferMixedGenderNightShift: boolean
   ): void {
     if (this.nightPatternId === null) return;
 
@@ -613,27 +625,95 @@ export class ScheduleGenerator {
         }
       }
 
+      const currentNightCount = this.nightCount.get(key) ?? 0;
+      const personalMax = safeNumber((m as any)?.maxNightShiftsPerMonth, 0);
+      const effectiveMax =
+        personalMax > 0
+          ? personalMax
+          : globalMaxNightShiftsPerMonth > 0
+          ? globalMaxNightShiftsPerMonth
+          : Number.POSITIVE_INFINITY;
+
+      if (currentNightCount >= effectiveMax) return false;
+
       return true;
     });
 
-    candidates.sort((a, b) => {
-      const aKey = idKey(a.id);
-      const bKey = idKey(b.id);
+    const sortBase = (list: Staff[]): Staff[] => {
+      return [...list].sort((a, b) => {
+        const aKey = idKey(a.id);
+        const bKey = idKey(b.id);
 
-      const aReq = nightRequesters.has(aKey) ? 0 : 1;
-      const bReq = nightRequesters.has(bKey) ? 0 : 1;
-      if (aReq !== bReq) return aReq - bReq;
+        const aReq = nightRequesters.has(aKey) ? 0 : 1;
+        const bReq = nightRequesters.has(bKey) ? 0 : 1;
+        if (aReq !== bReq) return aReq - bReq;
 
-      return (this.nightCount.get(aKey) ?? 0) - (this.nightCount.get(bKey) ?? 0);
-    });
+        const aNight = this.nightCount.get(aKey) ?? 0;
+        const bNight = this.nightCount.get(bKey) ?? 0;
+        if (aNight !== bNight) return aNight - bNight;
 
-    for (const member of candidates.slice(0, required)) {
+        return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ja');
+      });
+    };
+
+    const selected: Staff[] = [];
+    const selectedKeys = new Set<string>();
+
+    while (selected.length < required) {
+      const remaining = sortBase(
+        candidates.filter((c) => !selectedKeys.has(idKey(c.id)))
+      );
+      if (remaining.length === 0) break;
+
+      let chosen: Staff | undefined;
+
+      if (
+        preferMixedGenderNightShift &&
+        required >= 2 &&
+        selected.length > 0
+      ) {
+        const selectedGenders = new Set(
+          selected.map((s) => normalizeGender((s as any)?.gender))
+        );
+
+        if (selectedGenders.size === 1) {
+          const onlyGender = Array.from(selectedGenders)[0];
+          if (onlyGender === '男性' || onlyGender === '女性') {
+            const targetGender: StaffGender =
+              onlyGender === '男性' ? '女性' : '男性';
+
+            const mixedCandidates = remaining.filter(
+              (c) => normalizeGender((c as any)?.gender) === targetGender
+            );
+
+            chosen = mixedCandidates[0];
+          }
+        }
+      }
+
+      if (!chosen) {
+        chosen = remaining[0];
+      }
+      if (!chosen) break;
+
+      const key = idKey(chosen.id);
+      selected.push(chosen);
+      selectedKeys.add(key);
+    }
+
+    for (const member of selected) {
       const mid = member.id!;
       const key = idKey(mid);
 
       this.overwriteEntry(schedule, mid, dateStr, this.nightPatternId, false);
       this.nightCount.set(key, (this.nightCount.get(key) ?? 0) + 1);
       this.lastNightDate.set(key, dateStr);
+    }
+
+    if (selected.length < required) {
+      console.warn(
+        `[SG] 夜勤候補不足 ${dateStr}: required=${required}, assigned=${selected.length}`
+      );
     }
   }
 
@@ -737,11 +817,17 @@ export class ScheduleGenerator {
     patterns: ShiftPattern[],
     warnings: string[]
   ): void {
-    const minDays = safeNumber((constraints as any)?.minWorkDaysPerMonth, 0);
-    if (minDays <= 0) return;
+    const globalMinDays = safeNumber((constraints as any)?.minWorkDaysPerMonth, 0);
+    if (globalMinDays <= 0 && !staff.some((s) => safeNumber(s.minWorkDaysPerMonth, 0) > 0)) {
+      return;
+    }
 
     for (const member of staff) {
       if (member?.id == null) continue;
+
+      const personalMin = safeNumber(member.minWorkDaysPerMonth, 0);
+      const minDays = personalMin > 0 ? personalMin : globalMinDays;
+      if (minDays <= 0) continue;
 
       const workDays = schedule.filter((s) => {
         if (!sameId(s?.staffId, member.id)) return false;
