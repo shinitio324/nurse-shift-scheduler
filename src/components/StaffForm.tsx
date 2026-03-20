@@ -1,7 +1,6 @@
-// src/components/StaffForm.tsx
 import { useState } from 'react';
-import { X, Briefcase, Info } from 'lucide-react';
-import type { Staff, StaffFormData } from '../types';
+import { X, Briefcase, Info, Moon, Users } from 'lucide-react';
+import type { Staff, StaffFormData, StaffGender } from '../types';
 
 interface StaffFormProps {
   onSubmit: (data: StaffFormData) => Promise<boolean>;
@@ -12,57 +11,85 @@ interface StaffFormProps {
 
 const POSITION_OPTIONS = ['正看護師', '准看護師', '看護助手', 'その他'] as const;
 const EMPLOYMENT_OPTIONS = ['常勤', '非常勤', 'パート'] as const;
+const GENDER_OPTIONS: StaffGender[] = ['男性', '女性', 'その他'];
+
 const QUALIFICATION_OPTIONS = [
-  '看護師免許', '准看護師免許', '助産師免許',
-  '保健師免許', '専門看護師', '認定看護師',
+  '看護師免許',
+  '准看護師免許',
+  '助産師免許',
+  '保健師免許',
+  '専門看護師',
+  '認定看護師',
 ] as const;
 
-/** 雇用形態ごとのデフォルト最低勤務日数サジェスト */
 const DEFAULT_MIN_WORK_DAYS: Record<string, number> = {
-  '常勤': 20,
-  '非常勤': 15,
-  'パート': 10,
+  常勤: 20,
+  非常勤: 15,
+  パート: 10,
 };
 
-export function StaffForm({ onSubmit, onClose, initialData, isEdit = false }: StaffFormProps) {
+const DEFAULT_MAX_NIGHT_SHIFTS: Record<string, number> = {
+  常勤: 8,
+  非常勤: 4,
+  パート: 2,
+};
+
+export function StaffForm({
+  onSubmit,
+  onClose,
+  initialData,
+  isEdit = false,
+}: StaffFormProps) {
   const [formData, setFormData] = useState<StaffFormData>({
-    name:               initialData?.name               ?? '',
-    position:           initialData?.position           ?? '正看護師',
-    employmentType:     initialData?.employmentType     ?? '常勤',
-    qualifications:     initialData?.qualifications     ?? [],
+    name: initialData?.name ?? '',
+    position: initialData?.position ?? '正看護師',
+    employmentType: initialData?.employmentType ?? '常勤',
+    qualifications: initialData?.qualifications ?? [],
+    gender: initialData?.gender ?? '女性',
     minWorkDaysPerMonth: initialData?.minWorkDaysPerMonth ?? 0,
+    maxNightShiftsPerMonth: initialData?.maxNightShiftsPerMonth ?? 0,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 雇用形態変更時にデフォルト値をサジェスト（0のときのみ）
-  const handleEmploymentTypeChange = (v: string) => {
-    setFormData(prev => ({
-      ...prev,
-      employmentType: v,
-      // まだ手動で変更していない（0のまま）ならサジェストを適用
-      minWorkDaysPerMonth: prev.minWorkDaysPerMonth === 0
-        ? 0
-        : prev.minWorkDaysPerMonth,
-    }));
-  };
-
-  const applyDefaultDays = () => {
-    setFormData(prev => ({
+  const applyDefaultMinDays = () => {
+    setFormData((prev) => ({
       ...prev,
       minWorkDaysPerMonth: DEFAULT_MIN_WORK_DAYS[prev.employmentType] ?? 20,
     }));
   };
 
+  const applyDefaultMaxNight = () => {
+    setFormData((prev) => ({
+      ...prev,
+      maxNightShiftsPerMonth: DEFAULT_MAX_NIGHT_SHIFTS[prev.employmentType] ?? 8,
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim()) { alert('氏名を入力してください'); return; }
-    if (formData.minWorkDaysPerMonth < 0 || formData.minWorkDaysPerMonth > 31) {
-      alert('月の最低勤務日数は 0〜31 の範囲で入力してください'); return;
+
+    if (!formData.name.trim()) {
+      alert('氏名を入力してください');
+      return;
     }
+
+    if ((formData.minWorkDaysPerMonth ?? 0) < 0 || (formData.minWorkDaysPerMonth ?? 0) > 31) {
+      alert('月の最低勤務日数は 0〜31 の範囲で入力してください');
+      return;
+    }
+
+    if ((formData.maxNightShiftsPerMonth ?? 0) < 0 || (formData.maxNightShiftsPerMonth ?? 0) > 31) {
+      alert('月の夜勤上限回数は 0〜31 の範囲で入力してください');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      const ok = await onSubmit(formData);
+      const ok = await onSubmit({
+        ...formData,
+        name: formData.name.trim(),
+      });
       if (ok) onClose();
     } catch (err) {
       console.error(err);
@@ -73,138 +100,238 @@ export function StaffForm({ onSubmit, onClose, initialData, isEdit = false }: St
   };
 
   const toggleQualification = (q: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       qualifications: prev.qualifications.includes(q)
-        ? prev.qualifications.filter(x => x !== q)
+        ? prev.qualifications.filter((x) => x !== q)
         : [...prev.qualifications, q],
     }));
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white shadow-xl">
         <form onSubmit={handleSubmit}>
-
-          {/* ヘッダー */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
             <h3 className="text-xl font-bold text-gray-800">
               {isEdit ? 'スタッフ情報を編集' : '新しいスタッフを追加'}
             </h3>
-            <button type="button" onClick={onClose} disabled={isSubmitting}
-              className="text-gray-400 hover:text-gray-600 transition-colors">
-              <X className="w-6 h-6" />
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="text-gray-400 transition-colors hover:text-gray-600"
+            >
+              <X className="h-6 w-6" />
             </button>
           </div>
 
-          {/* フォーム本体 */}
-          <div className="px-6 py-4 space-y-5">
-
+          <div className="space-y-5 px-6 py-4">
             {/* 氏名 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 氏名 <span className="text-red-500">*</span>
               </label>
-              <input type="text" required value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                placeholder="例: 田中 花子" disabled={isSubmitting} />
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                placeholder="例: 田中 花子"
+                disabled={isSubmitting}
+              />
             </div>
 
             {/* 職種 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 職種 <span className="text-red-500">*</span>
               </label>
-              <select required value={formData.position}
-                onChange={e => setFormData({ ...formData, position: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                disabled={isSubmitting}>
-                {POSITION_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+              <select
+                required
+                value={formData.position}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    position: e.target.value as StaffFormData['position'],
+                  })
+                }
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                disabled={isSubmitting}
+              >
+                {POSITION_OPTIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
               </select>
             </div>
 
             {/* 雇用形態 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
                 雇用形態 <span className="text-red-500">*</span>
               </label>
-              <select required value={formData.employmentType}
-                onChange={e => handleEmploymentTypeChange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                disabled={isSubmitting}>
-                {EMPLOYMENT_OPTIONS.map(e => <option key={e} value={e}>{e}</option>)}
+              <select
+                required
+                value={formData.employmentType}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    employmentType: e.target.value as StaffFormData['employmentType'],
+                  })
+                }
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+                disabled={isSubmitting}
+              >
+                {EMPLOYMENT_OPTIONS.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
+                ))}
               </select>
             </div>
 
-            {/* ★NEW 月の最低勤務日数 */}
-            <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-indigo-800 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4" />
+            {/* 性別 */}
+            <div className="rounded-lg border border-pink-200 bg-pink-50 p-4">
+              <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-pink-800">
+                <Users className="h-4 w-4" />
+                性別（夜勤ペア最適化に使用）
+              </label>
+              <select
+                value={formData.gender ?? '女性'}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    gender: e.target.value as StaffGender,
+                  })
+                }
+                className="w-full rounded-lg border border-pink-300 px-3 py-2 focus:ring-2 focus:ring-pink-500"
+                disabled={isSubmitting}
+              >
+                {GENDER_OPTIONS.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-pink-700">
+                夜勤が2名以上必要な日に、できるだけ男女混合の組み合わせを優先します。
+              </p>
+            </div>
+
+            {/* 月の最低勤務日数 */}
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
+                  <Briefcase className="h-4 w-4" />
                   月の最低勤務日数
                 </label>
-                {/* デフォルト値サジェストボタン */}
-                <button type="button" onClick={applyDefaultDays}
-                  className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors"
-                  disabled={isSubmitting}>
-                  {formData.employmentType}の目安（{DEFAULT_MIN_WORK_DAYS[formData.employmentType] ?? 20}日）を適用
+                <button
+                  type="button"
+                  onClick={applyDefaultMinDays}
+                  className="rounded bg-indigo-100 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-200"
+                  disabled={isSubmitting}
+                >
+                  {formData.employmentType}の目安を適用
                 </button>
               </div>
 
               <div className="flex items-center gap-3">
                 <input
-                  type="number" min={0} max={31}
-                  value={formData.minWorkDaysPerMonth}
-                  onChange={e => setFormData({ ...formData, minWorkDaysPerMonth: Number(e.target.value) })}
-                  className="w-28 px-3 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-center text-lg font-bold"
+                  type="number"
+                  min={0}
+                  max={31}
+                  value={formData.minWorkDaysPerMonth ?? 0}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      minWorkDaysPerMonth: Number(e.target.value),
+                    })
+                  }
+                  className="w-28 rounded-lg border border-indigo-300 px-3 py-2 text-center text-lg font-bold focus:ring-2 focus:ring-indigo-500"
                   disabled={isSubmitting}
                 />
-                <span className="text-gray-700 font-medium">日 / 月</span>
-                {formData.minWorkDaysPerMonth === 0 && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">0 = 制約なし</span>
-                )}
-                {formData.minWorkDaysPerMonth > 0 && (
-                  <span className="text-xs text-indigo-700 bg-indigo-100 px-2 py-1 rounded font-medium">
-                    月 {formData.minWorkDaysPerMonth} 日以上勤務
+                <span className="font-medium text-gray-700">日 / 月</span>
+                {(formData.minWorkDaysPerMonth ?? 0) === 0 && (
+                  <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                    0 = 制約なし
                   </span>
                 )}
               </div>
 
               <div className="mt-2 flex items-start gap-2">
-                <Info className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
                 <p className="text-xs text-indigo-700">
-                  休み・明け・有給はカウント対象外です。スケジュール生成時に自動的に目標日数まで勤務が割り当てられます。
-                  0 に設定すると制約なしになります。
+                  休み・明け・有給はカウント対象外です。
                 </p>
               </div>
+            </div>
 
-              {/* 雇用形態ごとの目安表 */}
-              <div className="mt-3 pt-3 border-t border-indigo-200">
-                <p className="text-xs font-medium text-indigo-700 mb-1">雇用形態ごとの目安</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {Object.entries(DEFAULT_MIN_WORK_DAYS).map(([type, days]) => (
-                    <div key={type}
-                      className={`text-center p-1.5 rounded text-xs ${formData.employmentType === type ? 'bg-indigo-200 font-bold text-indigo-900' : 'bg-white text-gray-600'}`}>
-                      <div className="font-medium">{type}</div>
-                      <div>{days}日〜</div>
-                    </div>
-                  ))}
-                </div>
+            {/* 月の夜勤上限 */}
+            <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="flex items-center gap-2 text-sm font-semibold text-purple-800">
+                  <Moon className="h-4 w-4" />
+                  月の夜勤上限回数
+                </label>
+                <button
+                  type="button"
+                  onClick={applyDefaultMaxNight}
+                  className="rounded bg-purple-100 px-2 py-1 text-xs text-purple-700 hover:bg-purple-200"
+                  disabled={isSubmitting}
+                >
+                  {formData.employmentType}の目安を適用
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={0}
+                  max={31}
+                  value={formData.maxNightShiftsPerMonth ?? 0}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      maxNightShiftsPerMonth: Number(e.target.value),
+                    })
+                  }
+                  className="w-28 rounded-lg border border-purple-300 px-3 py-2 text-center text-lg font-bold focus:ring-2 focus:ring-purple-500"
+                  disabled={isSubmitting}
+                />
+                <span className="font-medium text-gray-700">回 / 月</span>
+                {(formData.maxNightShiftsPerMonth ?? 0) === 0 && (
+                  <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                    0 = 全体設定を使用
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-purple-500" />
+                <p className="text-xs text-purple-700">
+                  個別設定が 0 の場合は、制約の全体上限値を使用します。
+                </p>
               </div>
             </div>
 
             {/* 資格 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">資格（複数選択可）</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                資格（複数選択可）
+              </label>
               <div className="space-y-2">
-                {QUALIFICATION_OPTIONS.map(q => (
-                  <label key={q} className="flex items-center space-x-2 cursor-pointer">
-                    <input type="checkbox"
+                {QUALIFICATION_OPTIONS.map((q) => (
+                  <label key={q} className="flex cursor-pointer items-center space-x-2">
+                    <input
+                      type="checkbox"
                       checked={formData.qualifications.includes(q)}
                       onChange={() => toggleQualification(q)}
-                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                      disabled={isSubmitting} />
+                      className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+                      disabled={isSubmitting}
+                    />
                     <span className="text-sm text-gray-700">{q}</span>
                   </label>
                 ))}
@@ -212,19 +339,16 @@ export function StaffForm({ onSubmit, onClose, initialData, isEdit = false }: St
             </div>
           </div>
 
-          {/* フッター */}
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3 sticky bottom-0 bg-white">
-            <button type="button" onClick={onClose} disabled={isSubmitting}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+          <div className="sticky bottom-0 flex justify-end space-x-3 border-t border-gray-200 bg-white px-6 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+            >
               キャンセル
             </button>
-            <button type="submit" disabled={isSubmitting}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">
-              {isSubmitting ? '保存中...' : isEdit ? '更新する' : '追加する'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-lg
