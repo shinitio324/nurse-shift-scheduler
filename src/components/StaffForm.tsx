@@ -22,12 +22,14 @@ const QUALIFICATION_OPTIONS = [
   '認定看護師',
 ] as const;
 
+/** 雇用形態ごとのデフォルト最低勤務日数サジェスト */
 const DEFAULT_MIN_WORK_DAYS: Record<string, number> = {
   常勤: 20,
   非常勤: 15,
   パート: 10,
 };
 
+/** 雇用形態ごとのデフォルト夜勤上限サジェスト */
 const DEFAULT_MAX_NIGHT_SHIFTS: Record<string, number> = {
   常勤: 8,
   非常勤: 4,
@@ -112,6 +114,7 @@ export function StaffForm({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white shadow-xl">
         <form onSubmit={handleSubmit}>
+          {/* ヘッダー */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
             <h3 className="text-xl font-bold text-gray-800">
               {isEdit ? 'スタッフ情報を編集' : '新しいスタッフを追加'}
@@ -126,6 +129,7 @@ export function StaffForm({
             </button>
           </div>
 
+          {/* フォーム本体 */}
           <div className="space-y-5 px-6 py-4">
             {/* 氏名 */}
             <div>
@@ -264,7 +268,7 @@ export function StaffForm({
               <div className="mt-2 flex items-start gap-2">
                 <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-indigo-500" />
                 <p className="text-xs text-indigo-700">
-                  休み・明け・有給はカウント対象外です。
+                  休み・明け・有給はカウント対象外です。勤務日数の最低ラインとして使われます。
                 </p>
               </div>
             </div>
@@ -312,7 +316,7 @@ export function StaffForm({
               <div className="mt-2 flex items-start gap-2">
                 <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-purple-500" />
                 <p className="text-xs text-purple-700">
-                  個別設定が 0 の場合は、制約の全体上限値を使用します。
+                  個別設定が 0 の場合は、制約側の全体夜勤上限を使います。
                 </p>
               </div>
             </div>
@@ -339,6 +343,7 @@ export function StaffForm({
             </div>
           </div>
 
+          {/* フッター */}
           <div className="sticky bottom-0 flex justify-end space-x-3 border-t border-gray-200 bg-white px-6 py-4">
             <button
               type="button"
@@ -351,4 +356,13 @@ export function StaffForm({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-lg
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {isSubmitting ? '保存中...' : isEdit ? '更新する' : '追加する'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
