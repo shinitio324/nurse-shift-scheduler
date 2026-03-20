@@ -15,27 +15,33 @@ export const AKE_NAME = '明け';
 export const VACATION_NAME = '有給';
 export const REST_NAME = '休み';
 
-/** このファイル内で使うデフォルトパターン定義（DBに不足分を補完するため） */
+/** DBに不足している場合だけ補完するデフォルトパターン */
 const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
   {
     name: '日勤',
-    startTime: '09:00',
+    startTime: '08:30',
     endTime: '17:00',
     color: '#bfdbfe',
     isAke: false,
     isVacation: false,
     isNight: false,
-    requiredStaff: 2,
+    requiredStaff: 5,
+    shortName: '日',
+    isWorkday: true,
+    sortOrder: 1,
   },
   {
     name: '夜勤',
-    startTime: '17:00',
+    startTime: '16:30',
     endTime: '09:00',
     color: '#c4b5fd',
     isAke: false,
     isVacation: false,
     isNight: true,
-    requiredStaff: 1,
+    requiredStaff: 2,
+    shortName: '夜',
+    isWorkday: true,
+    sortOrder: 2,
   },
   {
     name: '明け',
@@ -46,6 +52,9 @@ const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
     isVacation: false,
     isNight: false,
     requiredStaff: 0,
+    shortName: '明',
+    isWorkday: false,
+    sortOrder: 3,
   },
   {
     name: '有給',
@@ -56,6 +65,9 @@ const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
     isVacation: true,
     isNight: false,
     requiredStaff: 0,
+    shortName: '有',
+    isWorkday: false,
+    sortOrder: 4,
   },
   {
     name: '休み',
@@ -66,11 +78,13 @@ const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
     isVacation: false,
     isNight: false,
     requiredStaff: 0,
+    shortName: '休',
+    isWorkday: false,
+    sortOrder: 5,
   },
 ];
 
-// ─── ユーティリティ ─────────────────────────────────────────────
-
+// ─── ユーティリティ ─────────────────────────────────────────
 function safeArray<T>(val: unknown): T[] {
   return Array.isArray(val) ? (val as T[]) : [];
 }
@@ -101,7 +115,7 @@ function getDaysInMonth(year: number, month: number): number {
 }
 
 function formatDate(date: Date): string {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
@@ -111,6 +125,7 @@ function formatDate(date: Date): string {
 function getMonthDates(year: number, month: number): string[] {
   const days = getDaysInMonth(year, month);
   if (days <= 0) return [];
+
   const result: string[] = [];
   for (let i = 1; i <= days; i++) {
     const d = formatDate(new Date(year, month - 1, i));
@@ -138,8 +153,7 @@ function toNumericId(id: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// ─── DBパターン補完 ──────────────────────────────────────────────
-
+// ─── DBパターン補完 ──────────────────────────────────────────
 async function ensurePatternsInDB(): Promise<void> {
   try {
     const existing = await db.shiftPatterns.toArray();
@@ -159,8 +173,7 @@ async function ensurePatternsInDB(): Promise<void> {
   }
 }
 
-// ─── DB取得 ──────────────────────────────────────────────────────
-
+// ─── DB取得 ─────────────────────────────────────────────────
 async function fetchPatterns(): Promise<ShiftPattern[]> {
   try {
     const raw = safeArray<ShiftPattern>(await db.shiftPatterns.toArray());
@@ -235,8 +248,7 @@ async function fetchPrevDayShifts(dateStr: string): Promise<GeneratedShift[]> {
   }
 }
 
-// ─── ScheduleGenerator ──────────────────────────────────────────
-
+// ─── ScheduleGenerator ──────────────────────────────────────
 export class ScheduleGenerator {
   private year: number;
   private month: number;
@@ -276,7 +288,7 @@ export class ScheduleGenerator {
         `[SG] DB取得完了 patterns=${patterns.length} staff=${staff.length} requests=${requests.length}`
       );
 
-      // ─── パターンID解決 ───
+      // パターンID解決
       const nightPat =
         patterns.find((p) => p?.isNight === true || p?.name === '夜勤') ?? null;
       const akePat =
@@ -335,7 +347,7 @@ export class ScheduleGenerator {
 
       const schedule: GeneratedShift[] = [];
 
-      // ─── Pass1: 有給確定 ───
+      // Pass1: 有給確定
       if (this.vacationPatternId !== null) {
         for (const req of requests) {
           if (!req) continue;
@@ -350,7 +362,7 @@ export class ScheduleGenerator {
         `[SG] Pass1完了 有給=${schedule.filter((s) => sameId(s.patternId, this.vacationPatternId)).length}件`
       );
 
-      // ─── Pass2: 日次割当（明け → 明け翌日休み → 夜勤 → 日勤） ───
+      // Pass2: 明け → 明け翌日休み → 夜勤 → 日勤
       const minRestBetweenNights = safeNumber(
         (constraints as any)?.minRestDaysBetweenNights,
         1
@@ -364,6 +376,7 @@ export class ScheduleGenerator {
         }
 
         try {
+          console.log(`[SG] restAfterAke=${restAfterAke} date=${dateStr}`);
           if (restAfterAke) {
             this.applyRestAfterAke(dateStr, schedule, staff, patterns, requests);
           }
@@ -395,14 +408,14 @@ export class ScheduleGenerator {
 
       console.log(`[SG] Pass2完了 total=${schedule.length}件`);
 
-      // ─── Pass3: 休み調整 ───
+      // Pass3: 休み調整
       try {
         this.adjustRest(schedule, staff, constraints);
       } catch (e) {
         console.error('[SG] adjustRest:', e);
       }
 
-      // ─── Pass4: 最低勤務チェック ───
+      // Pass4: 最低勤務日数チェック
       const warnings: string[] = [];
       try {
         this.checkMinWork(schedule, staff, constraints, patterns, warnings);
@@ -410,7 +423,7 @@ export class ScheduleGenerator {
         console.error('[SG] checkMinWork:', e);
       }
 
-      // ─── 統計 ───
+      // 統計
       let statistics: ScheduleStatistics;
       try {
         statistics = this.calcStats(schedule, staff, patterns, dates);
@@ -432,7 +445,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 前月末の夜勤・明け持ち越し読み込み ──────────────────────
+  // ─── 前月末の持ち越し読み込み ──────────────────────────────
   private async loadPrevMonthCarryOver(patterns: ShiftPattern[]): Promise<void> {
     try {
       const pm = this.month === 1 ? 12 : this.month - 1;
@@ -468,7 +481,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 明け適用 ──────────────────────────────────────────────────
+  // ─── 明け適用 ─────────────────────────────────────────────
   private async applyAke(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -507,7 +520,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 明け翌日休み適用 ──────────────────────────────────────────
+  // ─── 明け翌日休み適用 ─────────────────────────────────────
   private applyRestAfterAke(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -518,13 +531,17 @@ export class ScheduleGenerator {
     if (this.restPatternId === null) return;
     if (this.akePatternId === null) return;
 
+    console.log(`[SG] applyRestAfterAke start ${dateStr}`);
+
     const currentDate = new Date(dateStr);
     const isFirst = currentDate.getDate() === 1;
     const prevStr = formatDate(addDays(currentDate, -1));
 
-    // この日に希望勤務があるスタッフは自動休みにしない（希望優先）
+    // その日に本人希望がある場合は希望優先
     const requestedStaffKeys = new Set(
-      requests.filter((r) => r?.date === dateStr && r?.staffId != null).map((r) => idKey(r.staffId))
+      requests
+        .filter((r) => r?.date === dateStr && r?.staffId != null)
+        .map((r) => idKey(r.staffId))
     );
 
     for (const member of staff) {
@@ -549,12 +566,13 @@ export class ScheduleGenerator {
       }
 
       if (needsRest) {
+        console.log(`[SG] 明け翌日休み適用 staff=${mid} date=${dateStr}`);
         this.overwriteEntry(schedule, mid, dateStr, this.restPatternId, false);
       }
     }
   }
 
-  // ─── 夜勤割り当て ──────────────────────────────────────────────
+  // ─── 夜勤割り当て ─────────────────────────────────────────
   private assignNight(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -619,7 +637,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 日勤割り当て（残りスタッフ）──────────────────────────────
+  // ─── 日勤割り当て ─────────────────────────────────────────
   private assignDay(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -652,8 +670,8 @@ export class ScheduleGenerator {
       if (this.hasEntry(schedule, mid, dateStr)) continue;
 
       const req = requests.find((r) => sameId(r?.staffId, mid) && r?.date === dateStr);
-
       const requestedPatternId = toNumericId(req?.patternId);
+
       const pid =
         req?.patternId != null && !sameId(req.patternId, this.nightPatternId)
           ? requestedPatternId ?? fallbackDayId
@@ -669,7 +687,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 休み調整 ─────────────────────────────────────────────────
+  // ─── 休み調整 ─────────────────────────────────────────────
   private adjustRest(
     schedule: GeneratedShift[],
     staff: Staff[],
@@ -711,7 +729,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 最低勤務日数チェック ─────────────────────────────────────
+  // ─── 最低勤務日数チェック ─────────────────────────────────
   private checkMinWork(
     schedule: GeneratedShift[],
     staff: Staff[],
@@ -739,7 +757,7 @@ export class ScheduleGenerator {
     }
   }
 
-  // ─── 統計計算 ─────────────────────────────────────────────────
+  // ─── 統計計算 ─────────────────────────────────────────────
   private calcStats(
     schedule: GeneratedShift[],
     staff: Staff[],
@@ -790,7 +808,7 @@ export class ScheduleGenerator {
     };
   }
 
-  // ─── ヘルパー ─────────────────────────────────────────────────
+  // ─── ヘルパー ─────────────────────────────────────────────
   private isNight(p: ShiftPattern): boolean {
     if (!p) return false;
     if (p.isNight === true) return true;
