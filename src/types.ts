@@ -100,7 +100,8 @@ export interface ScheduleConstraints {
   minRestDaysBetweenNights?: number;
   minWorkDaysPerMonth?: number;
   exactRestDaysPerMonth?: number;
-  // ▼ 旧互換フィールド
+  restAfterAke?: boolean; 
+  
   name?: string;
   description?: string;
   maxConsecutiveNightShifts?: number;
