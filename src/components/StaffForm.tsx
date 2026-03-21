@@ -334,11 +334,12 @@ export function StaffForm({
                   disabled={isSubmitting || formData.canWorkNightShift === false}
                 />
                 <span className="font-medium text-gray-700">回 / 月</span>
-                {(formData.maxNightShiftsPerMonth ?? 0) === 0 && formData.canWorkNightShift !== false && (
-                  <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">
-                    0 = 全体設定を使用
-                  </span>
-                )}
+                {(formData.maxNightShiftsPerMonth ?? 0) === 0 &&
+                  formData.canWorkNightShift !== false && (
+                    <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                      0 = 全体設定を使用
+                    </span>
+                  )}
                 {formData.canWorkNightShift === false && (
                   <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-700">
                     日勤専従のため対象外
