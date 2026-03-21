@@ -23,6 +23,7 @@ function normalizeStaff(raw: any): Staff {
     gender: raw?.gender ?? '女性',
     minWorkDaysPerMonth: safeNumber(raw?.minWorkDaysPerMonth, 0),
     maxNightShiftsPerMonth: safeNumber(raw?.maxNightShiftsPerMonth, 0),
+    canWorkNightShift: raw?.canWorkNightShift !== false,
     createdAt: safeDate(raw?.createdAt),
     updatedAt: safeDate(raw?.updatedAt),
   };
@@ -32,9 +33,6 @@ export function useStaff() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /**
-   * スタッフを読み込み
-   */
   const loadStaff = async () => {
     try {
       setLoading(true);
@@ -42,7 +40,6 @@ export function useStaff() {
       const allStaffRaw = await db.staff.toArray();
       const allStaff = allStaffRaw.map(normalizeStaff);
 
-      // 作成日時順にソート
       allStaff.sort(
         (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
       );
@@ -60,9 +57,6 @@ export function useStaff() {
     loadStaff();
   }, []);
 
-  /**
-   * スタッフを追加
-   */
   const addStaff = async (data: StaffFormData): Promise<boolean> => {
     try {
       if (!data.name || !data.name.trim()) {
@@ -83,7 +77,11 @@ export function useStaff() {
           : [],
         gender: data.gender ?? '女性',
         minWorkDaysPerMonth: safeNumber(data.minWorkDaysPerMonth, 0),
-        maxNightShiftsPerMonth: safeNumber(data.maxNightShiftsPerMonth, 0),
+        maxNightShiftsPerMonth:
+          data.canWorkNightShift === false
+            ? 0
+            : safeNumber(data.maxNightShiftsPerMonth, 0),
+        canWorkNightShift: data.canWorkNightShift !== false,
         createdAt: now,
         updatedAt: now,
       };
@@ -102,15 +100,15 @@ export function useStaff() {
     }
   };
 
-  /**
-   * スタッフを更新
-   */
   const updateStaff = async (
     id: string,
     data: Partial<StaffFormData>
   ): Promise<boolean> => {
     try {
       console.log('スタッフを更新中:', id, data);
+
+      const nextCanWorkNightShift =
+        data.canWorkNightShift !== undefined ? data.canWorkNightShift : undefined;
 
       const updatePayload: Partial<Staff> = {
         ...(data.name !== undefined ? { name: data.name.trim() } : {}),
@@ -131,12 +129,15 @@ export function useStaff() {
               minWorkDaysPerMonth: safeNumber(data.minWorkDaysPerMonth, 0),
             }
           : {}),
-        ...(data.maxNightShiftsPerMonth !== undefined
+        ...(nextCanWorkNightShift !== undefined
+          ? { canWorkNightShift: nextCanWorkNightShift !== false }
+          : {}),
+        ...(data.maxNightShiftsPerMonth !== undefined || nextCanWorkNightShift === false
           ? {
-              maxNightShiftsPerMonth: safeNumber(
-                data.maxNightShiftsPerMonth,
-                0
-              ),
+              maxNightShiftsPerMonth:
+                nextCanWorkNightShift === false
+                  ? 0
+                  : safeNumber(data.maxNightShiftsPerMonth, 0),
             }
           : {}),
         updatedAt: new Date(),
@@ -154,14 +155,10 @@ export function useStaff() {
     }
   };
 
-  /**
-   * スタッフを削除
-   */
   const deleteStaff = async (id: string): Promise<boolean> => {
     try {
       console.log('スタッフを削除中:', id);
 
-      // 旧 shifts テーブル
       try {
         const shifts = await db.shifts.where('staffId').equals(id).toArray();
         if (shifts.length > 0) {
@@ -175,7 +172,6 @@ export function useStaff() {
         console.warn('shifts 削除をスキップしました:', e);
       }
 
-      // shiftRequests テーブル
       try {
         const shiftRequestsTable = (db as any).shiftRequests;
         if (
@@ -202,7 +198,6 @@ export function useStaff() {
         console.warn('shiftRequests 削除をスキップしました:', e);
       }
 
-      // generatedSchedules テーブル
       try {
         const generatedSchedulesTable = (db as any).generatedSchedules;
         if (
