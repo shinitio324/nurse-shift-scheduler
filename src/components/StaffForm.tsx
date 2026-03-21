@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Briefcase, Info, Moon, Users } from 'lucide-react';
+import { X, Briefcase, Info, Moon, Users, Sun } from 'lucide-react';
 import type { Staff, StaffFormData, StaffGender } from '../types';
 
 interface StaffFormProps {
@@ -22,14 +22,12 @@ const QUALIFICATION_OPTIONS = [
   '認定看護師',
 ] as const;
 
-/** 雇用形態ごとのデフォルト最低勤務日数サジェスト */
 const DEFAULT_MIN_WORK_DAYS: Record<string, number> = {
   常勤: 20,
   非常勤: 15,
   パート: 10,
 };
 
-/** 雇用形態ごとのデフォルト夜勤上限サジェスト */
 const DEFAULT_MAX_NIGHT_SHIFTS: Record<string, number> = {
   常勤: 8,
   非常勤: 4,
@@ -50,6 +48,7 @@ export function StaffForm({
     gender: initialData?.gender ?? '女性',
     minWorkDaysPerMonth: initialData?.minWorkDaysPerMonth ?? 0,
     maxNightShiftsPerMonth: initialData?.maxNightShiftsPerMonth ?? 0,
+    canWorkNightShift: initialData?.canWorkNightShift !== false,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,6 +61,7 @@ export function StaffForm({
   };
 
   const applyDefaultMaxNight = () => {
+    if (formData.canWorkNightShift === false) return;
     setFormData((prev) => ({
       ...prev,
       maxNightShiftsPerMonth: DEFAULT_MAX_NIGHT_SHIFTS[prev.employmentType] ?? 8,
@@ -91,6 +91,10 @@ export function StaffForm({
       const ok = await onSubmit({
         ...formData,
         name: formData.name.trim(),
+        maxNightShiftsPerMonth:
+          formData.canWorkNightShift === false
+            ? 0
+            : (formData.maxNightShiftsPerMonth ?? 0),
       });
       if (ok) onClose();
     } catch (err) {
@@ -114,7 +118,6 @@ export function StaffForm({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white shadow-xl">
         <form onSubmit={handleSubmit}>
-          {/* ヘッダー */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
             <h3 className="text-xl font-bold text-gray-800">
               {isEdit ? 'スタッフ情報を編集' : '新しいスタッフを追加'}
@@ -129,9 +132,7 @@ export function StaffForm({
             </button>
           </div>
 
-          {/* フォーム本体 */}
           <div className="space-y-5 px-6 py-4">
-            {/* 氏名 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 氏名 <span className="text-red-500">*</span>
@@ -147,7 +148,6 @@ export function StaffForm({
               />
             </div>
 
-            {/* 職種 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 職種 <span className="text-red-500">*</span>
@@ -172,7 +172,6 @@ export function StaffForm({
               </select>
             </div>
 
-            {/* 雇用形態 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 雇用形態 <span className="text-red-500">*</span>
@@ -197,7 +196,6 @@ export function StaffForm({
               </select>
             </div>
 
-            {/* 性別 */}
             <div className="rounded-lg border border-pink-200 bg-pink-50 p-4">
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-pink-800">
                 <Users className="h-4 w-4" />
@@ -225,7 +223,38 @@ export function StaffForm({
               </p>
             </div>
 
-            {/* 月の最低勤務日数 */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800">
+                <Sun className="h-4 w-4" />
+                夜勤対応設定
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={formData.canWorkNightShift !== false}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      canWorkNightShift: e.target.checked,
+                      maxNightShiftsPerMonth: e.target.checked
+                        ? prev.maxNightShiftsPerMonth ?? 0
+                        : 0,
+                    }))
+                  }
+                  className="h-4 w-4 rounded text-amber-600 focus:ring-amber-500"
+                  disabled={isSubmitting}
+                />
+                <span className="text-sm font-medium text-amber-900">
+                  夜勤対応する
+                </span>
+              </label>
+
+              <p className="mt-2 text-xs text-amber-700">
+                OFF にするとこのスタッフは夜勤候補から除外され、日勤・休み・有給のみ対象になります。
+              </p>
+            </div>
+
             <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
               <div className="mb-2 flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
@@ -273,7 +302,6 @@ export function StaffForm({
               </div>
             </div>
 
-            {/* 月の夜勤上限 */}
             <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
               <div className="mb-2 flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm font-semibold text-purple-800">
@@ -283,8 +311,8 @@ export function StaffForm({
                 <button
                   type="button"
                   onClick={applyDefaultMaxNight}
-                  className="rounded bg-purple-100 px-2 py-1 text-xs text-purple-700 hover:bg-purple-200"
-                  disabled={isSubmitting}
+                  className="rounded bg-purple-100 px-2 py-1 text-xs text-purple-700 hover:bg-purple-200 disabled:opacity-50"
+                  disabled={isSubmitting || formData.canWorkNightShift === false}
                 >
                   {formData.employmentType}の目安を適用
                 </button>
@@ -302,13 +330,18 @@ export function StaffForm({
                       maxNightShiftsPerMonth: Number(e.target.value),
                     })
                   }
-                  className="w-28 rounded-lg border border-purple-300 px-3 py-2 text-center text-lg font-bold focus:ring-2 focus:ring-purple-500"
-                  disabled={isSubmitting}
+                  className="w-28 rounded-lg border border-purple-300 px-3 py-2 text-center text-lg font-bold focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
+                  disabled={isSubmitting || formData.canWorkNightShift === false}
                 />
                 <span className="font-medium text-gray-700">回 / 月</span>
-                {(formData.maxNightShiftsPerMonth ?? 0) === 0 && (
+                {(formData.maxNightShiftsPerMonth ?? 0) === 0 && formData.canWorkNightShift !== false && (
                   <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500">
                     0 = 全体設定を使用
+                  </span>
+                )}
+                {formData.canWorkNightShift === false && (
+                  <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-700">
+                    日勤専従のため対象外
                   </span>
                 )}
               </div>
@@ -321,7 +354,6 @@ export function StaffForm({
               </div>
             </div>
 
-            {/* 資格 */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 資格（複数選択可）
@@ -343,7 +375,6 @@ export function StaffForm({
             </div>
           </div>
 
-          {/* フッター */}
           <div className="sticky bottom-0 flex justify-end space-x-3 border-t border-gray-200 bg-white px-6 py-4">
             <button
               type="button"
