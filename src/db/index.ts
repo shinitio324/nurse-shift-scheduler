@@ -69,9 +69,19 @@ export class NurseSchedulerDB extends Dexie {
       generatedSchedules: '++id, staffId, date, patternId',
     });
 
-    // ★ v6: gender / maxNightShiftsPerMonth を staff に追加
     this.version(6).stores({
       staff: 'id, name, position, employmentType, gender, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
+      shifts: 'id, staffId, date, shiftType, createdAt',
+      shiftPatterns: '++id, name',
+      scheduleConstraints: 'id, name, isActive, priority, createdAt',
+      shiftRequests: '++id, staffId, date, patternId',
+      constraints: '++id',
+      generatedSchedules: '++id, staffId, date, patternId',
+    });
+
+    // ★ v7: canWorkNightShift を追加（日勤専従対応）
+    this.version(7).stores({
+      staff: 'id, name, position, employmentType, gender, canWorkNightShift, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
       shifts: 'id, staffId, date, shiftType, createdAt',
       shiftPatterns: '++id, name',
       scheduleConstraints: 'id, name, isActive, priority, createdAt',
@@ -169,7 +179,8 @@ export async function ensureDefaultPatterns(): Promise<void> {
             old.isNight === undefined ||
             old.isAke === undefined ||
             old.isVacation === undefined ||
-            old.requiredStaff === undefined
+            old.requiredStaff === undefined ||
+            old.isWorkday === undefined
           )
         ) {
           await db.shiftPatterns
