@@ -84,6 +84,10 @@ const DEFAULT_SHIFT_PATTERNS: Omit<ShiftPattern, 'id'>[] = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// utility
+// ─────────────────────────────────────────────────────────────
+
 function safeArray<T>(val: unknown): T[] {
   return Array.isArray(val) ? (val as T[]) : [];
 }
@@ -159,6 +163,16 @@ function canWorkNight(member: Partial<Staff> | undefined | null): boolean {
   return member?.canWorkNightShift !== false;
 }
 
+function isActiveRequest(req: ShiftRequest | undefined | null): boolean {
+  if (!req) return false;
+  if (req.status === 'rejected' || req.status === 'cancelled') return false;
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DB helpers
+// ─────────────────────────────────────────────────────────────
+
 async function ensurePatternsInDB(): Promise<void> {
   try {
     const existing = await db.shiftPatterns.toArray();
@@ -207,7 +221,8 @@ async function fetchRequests(): Promise<ShiftRequest[]> {
   try {
     const tbl = (db as any).shiftRequests;
     if (!tbl || typeof tbl.toArray !== 'function') return [];
-    return safeArray<ShiftRequest>(await tbl.toArray());
+    const raw = safeArray<ShiftRequest>(await tbl.toArray());
+    return raw.filter(isActiveRequest);
   } catch (e) {
     console.error('[DB] shiftRequests 取得失敗:', e);
     return [];
@@ -255,6 +270,10 @@ async function fetchPrevDayShifts(dateStr: string): Promise<GeneratedShift[]> {
     return [];
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// ScheduleGenerator
+// ─────────────────────────────────────────────────────────────
 
 export class ScheduleGenerator {
   private year: number;
@@ -330,20 +349,30 @@ export class ScheduleGenerator {
       const warnings: string[] = [];
 
       for (const member of staff) {
-        if (member?.id != null) this.nightCount.set(idKey(member.id), 0);
+        if (member?.id != null) {
+          this.nightCount.set(idKey(member.id), 0);
+        }
       }
 
       await this.loadPrevMonthCarryOver(patterns);
 
       const schedule: GeneratedShift[] = [];
 
+      // Pass1: 有給確定
       if (this.vacationPatternId !== null) {
         for (const req of requests) {
           if (!req) continue;
           if (!dates.includes(req.date)) continue;
           if (!sameId(req.patternId, this.vacationPatternId)) continue;
           if (this.hasEntry(schedule, req.staffId, req.date)) continue;
-          this.pushEntry(schedule, req.staffId, req.date, this.vacationPatternId, true);
+
+          this.pushEntry(
+            schedule,
+            req.staffId,
+            req.date,
+            this.vacationPatternId,
+            true
+          );
         }
       }
 
@@ -357,6 +386,8 @@ export class ScheduleGenerator {
       const preferMixedGenderNightShift =
         constraints.preferMixedGenderNightShift !== false;
 
+      // Pass2:
+      // 明け → 明け翌日休み → 夜勤 → 計画休み → 日勤
       for (const dateStr of dates) {
         await this.applyAke(dateStr, schedule, staff, patterns);
 
@@ -378,11 +409,25 @@ export class ScheduleGenerator {
           );
         }
 
+        this.assignPlannedRest(
+          dateStr,
+          schedule,
+          staff,
+          requests,
+          patterns,
+          constraints
+        );
+
         this.assignDay(dateStr, schedule, staff, requests, patterns);
       }
 
+      // Pass3: 休み件数の最終調整
       this.adjustRest(schedule, staff, constraints);
+
+      // Pass4: バリデーション系
       this.checkMinWork(schedule, staff, constraints, patterns, warnings);
+      this.checkRestQuota(schedule, staff, constraints, warnings);
+      this.checkConsecutiveWork(schedule, staff, constraints, patterns, warnings);
 
       const statistics = this.calcStats(schedule, staff, patterns, dates);
 
@@ -397,6 +442,10 @@ export class ScheduleGenerator {
     }
   }
 
+  // ─────────────────────────────────────────────────────────
+  // carry over
+  // ─────────────────────────────────────────────────────────
+
   private async loadPrevMonthCarryOver(patterns: ShiftPattern[]): Promise<void> {
     try {
       const pm = this.month === 1 ? 12 : this.month - 1;
@@ -409,6 +458,7 @@ export class ScheduleGenerator {
 
       for (const s of prevShifts) {
         if (!s || s.staffId == null) continue;
+
         const key = idKey(s.staffId);
         const pat = patterns.find((p) => sameId(p?.id, s.patternId));
         if (!pat) continue;
@@ -427,6 +477,10 @@ export class ScheduleGenerator {
     }
   }
 
+  // ─────────────────────────────────────────────────────────
+  // apply AKE / rest after AKE
+  // ─────────────────────────────────────────────────────────
+
   private async applyAke(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -441,6 +495,7 @@ export class ScheduleGenerator {
 
     for (const member of staff) {
       if (member?.id == null) continue;
+
       const mid = member.id;
       const key = idKey(mid);
 
@@ -510,6 +565,10 @@ export class ScheduleGenerator {
     }
   }
 
+  // ─────────────────────────────────────────────────────────
+  // night assignment
+  // ─────────────────────────────────────────────────────────
+
   private assignNight(
     dateStr: string,
     schedule: GeneratedShift[],
@@ -538,25 +597,29 @@ export class ScheduleGenerator {
         .filter(
           (r) =>
             r?.date === dateStr &&
-            sameId(r?.patternId, this.nightPatternId) &&
-            r?.staffId != null
+            r?.staffId != null &&
+            sameId(r.patternId, this.nightPatternId)
         )
         .map((r) => idKey(r.staffId))
     );
 
     const candidates = staff.filter((m) => {
       if (m?.id == null) return false;
-
       const key = idKey(m.id);
 
+      // 日勤専従は除外
       if (!canWorkNight(m)) return false;
+
+      // 既に何か入っている日は除外
       if (busyKeys.has(key)) return false;
 
+      // 別希望がある日は除外
       const req = requestMap.get(key);
       if (req && req.patternId != null && !sameId(req.patternId, this.nightPatternId)) {
         return false;
       }
 
+      // 夜勤間隔
       if (minRestBetweenNights > 0) {
         const lastNight = this.lastNightDate.get(key);
         if (lastNight) {
@@ -566,6 +629,7 @@ export class ScheduleGenerator {
         }
       }
 
+      // 個別上限 or 全体上限
       const currentNightCount = this.nightCount.get(key) ?? 0;
       const personalMax = safeNumber(m.maxNightShiftsPerMonth, 0);
       const effectiveMax =
@@ -585,14 +649,17 @@ export class ScheduleGenerator {
         const aKey = idKey(a.id);
         const bKey = idKey(b.id);
 
+        // 夜勤希望優先
         const aReq = nightRequesters.has(aKey) ? 0 : 1;
         const bReq = nightRequesters.has(bKey) ? 0 : 1;
         if (aReq !== bReq) return aReq - bReq;
 
+        // 夜勤回数が少ない順
         const aNight = this.nightCount.get(aKey) ?? 0;
         const bNight = this.nightCount.get(bKey) ?? 0;
         if (aNight !== bNight) return aNight - bNight;
 
+        // 名前順
         return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ja');
       });
     };
@@ -604,11 +671,11 @@ export class ScheduleGenerator {
       const remaining = sortBase(
         candidates.filter((c) => !selectedKeys.has(idKey(c.id)))
       );
-
       if (remaining.length === 0) break;
 
       let chosen: Staff | undefined;
 
+      // 男女ペア優先
       if (preferMixedGenderNightShift && required >= 2 && selected.length > 0) {
         const selectedGenders = new Set(
           selected.map((s) => normalizeGender(s.gender))
@@ -631,7 +698,9 @@ export class ScheduleGenerator {
         }
       }
 
-      if (!chosen) chosen = remaining[0];
+      if (!chosen) {
+        chosen = remaining[0];
+      }
       if (!chosen) break;
 
       selected.push(chosen);
@@ -653,6 +722,119 @@ export class ScheduleGenerator {
       );
     }
   }
+
+  // ─────────────────────────────────────────────────────────
+  // rest planning
+  // ─────────────────────────────────────────────────────────
+
+  private countRestDaysForStaff(
+    schedule: GeneratedShift[],
+    staffId: string | number
+  ): number {
+    if (this.restPatternId === null) return 0;
+    return schedule.filter(
+      (s) => sameId(s?.staffId, staffId) && sameId(s?.patternId, this.restPatternId)
+    ).length;
+  }
+
+  private getConsecutiveWorkDaysBefore(
+    dateStr: string,
+    staffId: string | number,
+    schedule: GeneratedShift[],
+    patterns: ShiftPattern[]
+  ): number {
+    let count = 0;
+    let cursor = addDays(new Date(dateStr), -1);
+
+    while (
+      cursor.getFullYear() === this.year &&
+      cursor.getMonth() + 1 === this.month
+    ) {
+      const ds = formatDate(cursor);
+      const entry = this.findEntry(schedule, staffId, ds);
+      if (!entry) break;
+
+      const pat = patterns.find((p) => sameId(p?.id, entry.patternId));
+      if (!pat) break;
+
+      // 明け・有給・休みは連勤を切る
+      if (pat.isAke || pat.isVacation || pat.name === REST_NAME) {
+        break;
+      }
+
+      count += 1;
+      cursor = addDays(cursor, -1);
+    }
+
+    return count;
+  }
+
+  private assignPlannedRest(
+    dateStr: string,
+    schedule: GeneratedShift[],
+    staff: Staff[],
+    requests: ShiftRequest[],
+    patterns: ShiftPattern[],
+    constraints: ScheduleConstraints
+  ): void {
+    if (this.restPatternId === null) return;
+
+    const targetRest = safeNumber(constraints.exactRestDaysPerMonth, 0);
+    const maxConsecutive = safeNumber(constraints.maxConsecutiveWorkDays, 0);
+    const totalDays = getDaysInMonth(this.year, this.month);
+    const dayOfMonth = new Date(dateStr).getDate();
+
+    for (const member of staff) {
+      if (member?.id == null) continue;
+
+      const mid = member.id;
+
+      // 既に入っている日はスキップ
+      if (this.hasEntry(schedule, mid, dateStr)) continue;
+
+      // 希望がある日は希望優先
+      const req = requests.find(
+        (r) => sameId(r?.staffId, mid) && r?.date === dateStr
+      );
+      if (req?.patternId != null) continue;
+
+      const restCount = this.countRestDaysForStaff(schedule, mid);
+      const consecutiveWork = this.getConsecutiveWorkDaysBefore(
+        dateStr,
+        mid,
+        schedule,
+        patterns
+      );
+
+      const remainingDaysIncludingToday = totalDays - dayOfMonth + 1;
+      const remainingRestNeeded = Math.max(0, targetRest - restCount);
+
+      const idealRestByToday =
+        targetRest > 0 ? Math.floor((dayOfMonth * targetRest) / totalDays) : 0;
+
+      // 連勤上限に達したので休み
+      const forceByConsecutive =
+        maxConsecutive > 0 && consecutiveWork >= maxConsecutive;
+
+      // このままだと残り日数で休み件数を消化しきれない
+      const forceByQuota =
+        targetRest > 0 && remainingRestNeeded >= remainingDaysIncludingToday;
+
+      // 休みの進捗が遅れていて、少なくとも2連勤している
+      const paceByQuota =
+        targetRest > 0 &&
+        restCount < idealRestByToday &&
+        consecutiveWork >= 2;
+
+      if (forceByConsecutive || forceByQuota || paceByQuota) {
+        this.overwriteEntry(schedule, mid, dateStr, this.restPatternId, false);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // day assignment
+  // ─────────────────────────────────────────────────────────
 
   private assignDay(
     dateStr: string,
@@ -682,11 +864,15 @@ export class ScheduleGenerator {
       const mid = member.id;
       if (this.hasEntry(schedule, mid, dateStr)) continue;
 
-      const req = requests.find((r) => sameId(r?.staffId, mid) && r?.date === dateStr);
+      const req = requests.find(
+        (r) => sameId(r?.staffId, mid) && r?.date === dateStr
+      );
       const requestedPatternId = toNumericId(req?.patternId);
 
-      if (req?.patternId != null && !sameId(req.patternId, this.nightPatternId)) {
+      if (req?.patternId != null) {
         const requestedPattern = patterns.find((p) => sameId(p?.id, req.patternId));
+
+        // 夜勤以外の希望は優先
         if (requestedPattern && !requestedPattern.isNight) {
           this.pushEntry(
             schedule,
@@ -703,6 +889,10 @@ export class ScheduleGenerator {
     }
   }
 
+  // ─────────────────────────────────────────────────────────
+  // post adjustment
+  // ─────────────────────────────────────────────────────────
+
   private adjustRest(
     schedule: GeneratedShift[],
     staff: Staff[],
@@ -717,32 +907,68 @@ export class ScheduleGenerator {
       if (member?.id == null) continue;
 
       const mid = member.id;
-      const mine = schedule.filter((s) => sameId(s?.staffId, mid));
-      const restCount = mine.filter((s) => sameId(s?.patternId, this.restPatternId)).length;
-      const diff = target - restCount;
-      if (diff <= 0) continue;
+      const mine = schedule
+        .filter((s) => sameId(s?.staffId, mid))
+        .sort((a, b) => a.date.localeCompare(b.date));
 
-      const changeable = mine
-        .filter(
-          (s) =>
-            !sameId(s?.patternId, this.restPatternId) &&
-            !sameId(s?.patternId, this.akePatternId) &&
-            !sameId(s?.patternId, this.vacationPatternId) &&
-            !sameId(s?.patternId, this.nightPatternId)
-        )
-        .reverse();
+      const restEntries = mine.filter((s) =>
+        sameId(s?.patternId, this.restPatternId)
+      );
+      const restCount = restEntries.length;
 
-      for (let i = 0; i < diff && i < changeable.length; i++) {
-        const idx = schedule.indexOf(changeable[i]);
-        if (idx >= 0) {
-          schedule[idx] = {
-            ...schedule[idx],
-            patternId: this.restPatternId,
-          };
+      // 足りない分だけ補う
+      if (restCount < target) {
+        const need = target - restCount;
+
+        const candidates = mine
+          .filter(
+            (s) =>
+              !sameId(s?.patternId, this.restPatternId) &&
+              !sameId(s?.patternId, this.akePatternId) &&
+              !sameId(s?.patternId, this.vacationPatternId) &&
+              !sameId(s?.patternId, this.nightPatternId)
+          )
+          .reverse();
+
+        for (let i = 0; i < need && i < candidates.length; i++) {
+          const idx = schedule.indexOf(candidates[i]);
+          if (idx >= 0) {
+            schedule[idx] = {
+              ...schedule[idx],
+              patternId: this.restPatternId,
+            };
+          }
+        }
+      }
+
+      // 多すぎる分は日勤に戻す（明け翌日休みはなるべく維持）
+      if (restCount > target && this.dayPatternId !== null) {
+        const over = restCount - target;
+
+        const removable = restEntries
+          .filter((s) => {
+            const prevDate = formatDate(addDays(new Date(s.date), -1));
+            const prev = this.findEntry(schedule, mid, prevDate);
+            return !sameId(prev?.patternId, this.akePatternId);
+          })
+          .reverse();
+
+        for (let i = 0; i < over && i < removable.length; i++) {
+          const idx = schedule.indexOf(removable[i]);
+          if (idx >= 0) {
+            schedule[idx] = {
+              ...schedule[idx],
+              patternId: this.dayPatternId,
+            };
+          }
         }
       }
     }
   }
+
+  // ─────────────────────────────────────────────────────────
+  // validation / warnings
+  // ─────────────────────────────────────────────────────────
 
   private checkMinWork(
     schedule: GeneratedShift[],
@@ -774,6 +1000,87 @@ export class ScheduleGenerator {
       }
     }
   }
+
+  private checkRestQuota(
+    schedule: GeneratedShift[],
+    staff: Staff[],
+    constraints: ScheduleConstraints,
+    warnings: string[]
+  ): void {
+    if (this.restPatternId === null) return;
+
+    const target = safeNumber(constraints.exactRestDaysPerMonth, 0);
+    if (target <= 0) return;
+
+    for (const member of staff) {
+      if (member?.id == null) continue;
+
+      const restCount = schedule.filter(
+        (s) =>
+          sameId(s?.staffId, member.id) &&
+          sameId(s?.patternId, this.restPatternId)
+      ).length;
+
+      if (restCount !== target) {
+        warnings.push(
+          `${member.name ?? 'スタッフ'}: 休み日数 ${restCount}日（規定 ${target}日）`
+        );
+      }
+    }
+  }
+
+  private checkConsecutiveWork(
+    schedule: GeneratedShift[],
+    staff: Staff[],
+    constraints: ScheduleConstraints,
+    patterns: ShiftPattern[],
+    warnings: string[]
+  ): void {
+    const maxConsecutive = safeNumber(constraints.maxConsecutiveWorkDays, 0);
+    if (maxConsecutive <= 0) return;
+
+    for (const member of staff) {
+      if (member?.id == null) continue;
+
+      const mine = schedule
+        .filter((s) => sameId(s?.staffId, member.id))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      let streak = 0;
+      let streakStart = '';
+      let hasWarned = false;
+
+      for (const entry of mine) {
+        const pat = patterns.find((p) => sameId(p?.id, entry.patternId));
+
+        const isWork =
+          !!pat &&
+          !pat.isAke &&
+          !pat.isVacation &&
+          pat.name !== REST_NAME;
+
+        if (isWork) {
+          streak += 1;
+          if (streak === 1) streakStart = entry.date;
+
+          if (streak > maxConsecutive && !hasWarned) {
+            warnings.push(
+              `${member.name ?? 'スタッフ'}: ${streakStart} から連続勤務が ${streak} 日以上あります`
+            );
+            hasWarned = true;
+          }
+        } else {
+          streak = 0;
+          streakStart = '';
+          hasWarned = false;
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // statistics
+  // ─────────────────────────────────────────────────────────
 
   private calcStats(
     schedule: GeneratedShift[],
@@ -818,6 +1125,10 @@ export class ScheduleGenerator {
       shiftTypeDistribution,
     };
   }
+
+  // ─────────────────────────────────────────────────────────
+  // misc helpers
+  // ─────────────────────────────────────────────────────────
 
   private isNight(p: ShiftPattern): boolean {
     if (!p) return false;
