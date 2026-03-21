@@ -25,6 +25,7 @@ type ConstraintFormState = {
   restAfterAke: boolean;
   maxNightShiftsPerMonth: number;
   preferMixedGenderNightShift: boolean;
+  sunHolidayDayStaffRequired: number;
 };
 
 const DEFAULT_FORM: ConstraintFormState = {
@@ -37,6 +38,7 @@ const DEFAULT_FORM: ConstraintFormState = {
   restAfterAke: true,
   maxNightShiftsPerMonth: 8,
   preferMixedGenderNightShift: true,
+  sunHolidayDayStaffRequired: 3,
 };
 
 function safeNumber(value: unknown, fallback: number): number {
@@ -76,6 +78,10 @@ function toFormState(value?: Partial<ScheduleConstraints> | null): ConstraintFor
       value?.preferMixedGenderNightShift === undefined
         ? DEFAULT_FORM.preferMixedGenderNightShift
         : Boolean(value.preferMixedGenderNightShift),
+    sunHolidayDayStaffRequired: safeNumber(
+      value?.sunHolidayDayStaffRequired,
+      DEFAULT_FORM.sunHolidayDayStaffRequired
+    ),
   };
 }
 
@@ -163,6 +169,14 @@ export function ConstraintSettings() {
       return;
     }
 
+    if (
+      formData.sunHolidayDayStaffRequired < 0 ||
+      formData.sunHolidayDayStaffRequired > 31
+    ) {
+      alert('日曜・祝日の必要日勤人数は 0〜31 の範囲で入力してください');
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -176,6 +190,7 @@ export function ConstraintSettings() {
         restAfterAke: formData.restAfterAke,
         maxNightShiftsPerMonth: formData.maxNightShiftsPerMonth,
         preferMixedGenderNightShift: formData.preferMixedGenderNightShift,
+        sunHolidayDayStaffRequired: formData.sunHolidayDayStaffRequired,
         createdAt: currentConstraint?.createdAt ?? new Date(),
         updatedAt: new Date(),
       };
@@ -322,6 +337,13 @@ export function ConstraintSettings() {
             sub="明けの翌日を休みにしやすくする"
             tone="cyan"
           />
+          <InfoCard
+            icon={<Calendar className="h-4 w-4 text-rose-600" />}
+            label="日曜・祝日日勤"
+            value={`${safeNumber(active.sunHolidayDayStaffRequired, 3)}名`}
+            sub="原則この人数を目標に割当"
+            tone="rose"
+          />
         </div>
       </div>
 
@@ -361,6 +383,15 @@ export function ConstraintSettings() {
         >
           0 の場合は無効です。1 以上を指定すると、
           明け・有給を除いた純休み日数がちょうどその日数になるよう調整します。
+        </NoteBox>
+
+        <NoteBox
+          title="日曜・祝日日勤人数"
+          icon={<Calendar className="h-4 w-4 text-rose-600" />}
+          tone="rose"
+        >
+          日曜と日本の祝日は、原則としてこの人数だけ日勤を割り当てます。
+          希望シフトや他制約が競合した場合は警告を出しつつ調整されます。
         </NoteBox>
       </div>
 
@@ -514,6 +545,24 @@ export function ConstraintSettings() {
                   </div>
                 </Section>
 
+                <Section title="日曜・祝日の日勤体制" color="rose">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <NumberField
+                      label="日曜・祝日の必要日勤人数"
+                      min={0}
+                      max={31}
+                      value={formData.sunHolidayDayStaffRequired}
+                      onChange={(v) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          sunHolidayDayStaffRequired: v,
+                        }))
+                      }
+                      hint="原則この人数だけ日勤を割り当てます（既定値: 3）"
+                    />
+                  </div>
+                </Section>
+
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
@@ -523,6 +572,7 @@ export function ConstraintSettings() {
                         <li>日勤専従の設定はスタッフ管理側で行います。</li>
                         <li>個別夜勤上限があるスタッフは、その値が全体夜勤上限より優先されます。</li>
                         <li>夜勤可能スタッフが不足している場合、希望どおりに埋まらず警告が出ます。</li>
+                        <li>日曜・祝日の3名体制は「原則」です。希望や制約競合時は超過/不足警告が出ることがあります。</li>
                       </ul>
                     </div>
                   </div>
@@ -572,7 +622,7 @@ function Badge({
   color,
 }: {
   children: ReactNode;
-  color: 'green' | 'indigo' | 'purple' | 'pink' | 'orange' | 'cyan';
+  color: 'green' | 'indigo' | 'purple' | 'pink' | 'orange' | 'cyan' | 'rose';
 }) {
   const map = {
     green: 'bg-green-100 text-green-800',
@@ -581,6 +631,7 @@ function Badge({
     pink: 'bg-pink-100 text-pink-800',
     orange: 'bg-orange-100 text-orange-800',
     cyan: 'bg-cyan-100 text-cyan-800',
+    rose: 'bg-rose-100 text-rose-800',
   };
 
   return (
@@ -596,7 +647,7 @@ function Section({
   children,
 }: {
   title: string;
-  color: 'indigo' | 'emerald' | 'purple' | 'cyan';
+  color: 'indigo' | 'emerald' | 'purple' | 'cyan' | 'rose';
   children: ReactNode;
 }) {
   const bar = {
@@ -604,6 +655,7 @@ function Section({
     emerald: 'bg-emerald-600',
     purple: 'bg-purple-600',
     cyan: 'bg-cyan-600',
+    rose: 'bg-rose-600',
   };
 
   return (
@@ -742,7 +794,15 @@ function InfoCard({
   label: string;
   value: string;
   sub?: string;
-  tone: 'indigo' | 'sky' | 'emerald' | 'orange' | 'purple' | 'pink' | 'cyan';
+  tone:
+    | 'indigo'
+    | 'sky'
+    | 'emerald'
+    | 'orange'
+    | 'purple'
+    | 'pink'
+    | 'cyan'
+    | 'rose';
 }) {
   const toneMap = {
     indigo: 'border-indigo-200 bg-indigo-50',
@@ -752,6 +812,7 @@ function InfoCard({
     purple: 'border-purple-200 bg-purple-50',
     pink: 'border-pink-200 bg-pink-50',
     cyan: 'border-cyan-200 bg-cyan-50',
+    rose: 'border-rose-200 bg-rose-50',
   };
 
   return (
@@ -775,13 +836,14 @@ function NoteBox({
   title: string;
   icon: ReactNode;
   children: ReactNode;
-  tone: 'pink' | 'purple' | 'cyan' | 'orange';
+  tone: 'pink' | 'purple' | 'cyan' | 'orange' | 'rose';
 }) {
   const toneMap = {
     pink: 'border-pink-200 bg-pink-50',
     purple: 'border-purple-200 bg-purple-50',
     cyan: 'border-cyan-200 bg-cyan-50',
     orange: 'border-orange-200 bg-orange-50',
+    rose: 'border-rose-200 bg-rose-50',
   };
 
   return (
