@@ -5,7 +5,7 @@ import {
   UserPlus,
   Briefcase,
   Moon,
-  Users,
+  Sun,
 } from 'lucide-react';
 
 import { StaffForm } from './StaffForm';
@@ -80,12 +80,13 @@ export function StaffList() {
   const maleCount = staff.filter((s) => s.gender === '男性').length;
   const femaleCount = staff.filter((s) => s.gender === '女性').length;
   const otherGenderCount = staff.filter((s) => s.gender === 'その他').length;
+  const dayOnlyCount = staff.filter((s) => s.canWorkNightShift === false).length;
+  const nightCapableCount = staff.filter((s) => s.canWorkNightShift !== false).length;
   const nightLimitSetCount = staff.filter((s) => (s.maxNightShiftsPerMonth ?? 0) > 0).length;
   const minWorkSetCount = staff.filter((s) => (s.minWorkDaysPerMonth ?? 0) > 0).length;
 
   return (
     <div className="space-y-6">
-      {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">スタッフ管理</h2>
@@ -100,7 +101,14 @@ export function StaffList() {
         </button>
       </div>
 
-      {/* 凡例: 勤務日数 */}
+      <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <Sun className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+        <p className="text-sm text-amber-800">
+          <strong>夜勤対応 OFF</strong> にすると、そのスタッフは
+          <strong>日勤専従</strong> として扱われ、夜勤候補から除外されます。
+        </p>
+      </div>
+
       <div className="flex items-start gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
         <Briefcase className="mt-0.5 h-5 w-5 flex-shrink-0 text-indigo-600" />
         <p className="text-sm text-indigo-800">
@@ -109,12 +117,12 @@ export function StaffList() {
         </p>
       </div>
 
-      {/* 凡例: 夜勤 */}
       <div className="flex items-start gap-3 rounded-lg border border-purple-200 bg-purple-50 p-3">
         <Moon className="mt-0.5 h-5 w-5 flex-shrink-0 text-purple-600" />
         <p className="text-sm text-purple-800">
           <strong>月の夜勤上限回数</strong> を個別設定できます。
-          0 の場合は全体設定を使用し、夜勤が2名以上必要な日は <strong>できるだけ男女ペア</strong> を優先します。
+          0 の場合は全体設定を使用し、夜勤が2名以上必要な日は
+          <strong> できるだけ男女ペア </strong>を優先します。
         </p>
       </div>
 
@@ -143,6 +151,7 @@ export function StaffList() {
                 {[
                   '氏名',
                   '性別',
+                  '夜勤対応',
                   '職種',
                   '雇用形態',
                   '月の最低勤務日数',
@@ -163,12 +172,10 @@ export function StaffList() {
             <tbody className="divide-y divide-gray-200 bg-white">
               {staff.map((s) => (
                 <tr key={s.id} className="hover:bg-gray-50">
-                  {/* 氏名 */}
                   <td className="whitespace-nowrap px-4 py-4">
                     <div className="text-sm font-medium text-gray-900">{s.name}</div>
                   </td>
 
-                  {/* 性別 */}
                   <td className="whitespace-nowrap px-4 py-4">
                     <span
                       className={`rounded-full px-2 py-1 text-xs font-semibold ${genderBadgeClass(
@@ -179,14 +186,24 @@ export function StaffList() {
                     </span>
                   </td>
 
-                  {/* 職種 */}
+                  <td className="whitespace-nowrap px-4 py-4">
+                    {s.canWorkNightShift === false ? (
+                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+                        日勤専従
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-purple-800">
+                        夜勤可
+                      </span>
+                    )}
+                  </td>
+
                   <td className="whitespace-nowrap px-4 py-4">
                     <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800">
                       {s.position}
                     </span>
                   </td>
 
-                  {/* 雇用形態 */}
                   <td className="whitespace-nowrap px-4 py-4">
                     <span
                       className={`rounded-full px-2 py-1 text-xs font-semibold ${
@@ -201,7 +218,6 @@ export function StaffList() {
                     </span>
                   </td>
 
-                  {/* 最低勤務日数 */}
                   <td className="whitespace-nowrap px-4 py-4">
                     {(s.minWorkDaysPerMonth ?? 0) > 0 ? (
                       <span className="flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">
@@ -213,9 +229,10 @@ export function StaffList() {
                     )}
                   </td>
 
-                  {/* 夜勤上限 */}
                   <td className="whitespace-nowrap px-4 py-4">
-                    {(s.maxNightShiftsPerMonth ?? 0) > 0 ? (
+                    {s.canWorkNightShift === false ? (
+                      <span className="text-xs text-amber-600">日勤専従のため対象外</span>
+                    ) : (s.maxNightShiftsPerMonth ?? 0) > 0 ? (
                       <span className="flex items-center gap-1 rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-purple-800">
                         <Moon className="h-3 w-3" />
                         月 {s.maxNightShiftsPerMonth} 回まで
@@ -225,7 +242,6 @@ export function StaffList() {
                     )}
                   </td>
 
-                  {/* 資格 */}
                   <td className="px-4 py-4">
                     <div className="text-sm text-gray-900">
                       {(s.qualifications ?? []).length > 0 ? (
@@ -236,7 +252,6 @@ export function StaffList() {
                     </div>
                   </td>
 
-                  {/* 操作 */}
                   <td className="whitespace-nowrap px-4 py-4 text-right">
                     <button
                       onClick={() => handleEdit(s)}
@@ -256,7 +271,6 @@ export function StaffList() {
             </tbody>
           </table>
 
-          {/* サマリー */}
           <div className="border-t border-gray-200 bg-gray-50 px-4 py-3">
             <div className="flex flex-wrap gap-4 text-sm text-gray-600">
               <div className="flex items-center gap-1">
@@ -270,6 +284,14 @@ export function StaffList() {
               <div className="flex items-center gap-1">
                 <span className="font-medium">その他:</span>
                 <span>{otherGenderCount}名</span>
+              </div>
+              <div className="flex items-center gap-1 text-amber-600">
+                <span className="font-medium">日勤専従:</span>
+                <span>{dayOnlyCount}名</span>
+              </div>
+              <div className="flex items-center gap-1 text-purple-600">
+                <span className="font-medium">夜勤可:</span>
+                <span>{nightCapableCount}名</span>
               </div>
               <div className="flex items-center gap-1 text-indigo-600">
                 <span className="font-medium">最低勤務日数設定:</span>
