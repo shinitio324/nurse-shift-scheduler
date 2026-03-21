@@ -189,7 +189,7 @@ export function ConstraintSettings() {
         minRestDaysBetweenNights: formData.minRestDaysBetweenNights,
         minWorkDaysPerMonth: formData.minWorkDaysPerMonth,
         minRestDaysPerMonth: formData.minRestDaysPerMonth,
-        exactRestDaysPerMonth: 0, // 旧固定休みロジックは無効化
+        exactRestDaysPerMonth: 0,
         restAfterAke: formData.restAfterAke,
         maxNightShiftsPerMonth: formData.maxNightShiftsPerMonth,
         preferMixedGenderNightShift: formData.preferMixedGenderNightShift,
