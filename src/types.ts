@@ -1,8 +1,3 @@
-// ============================================================
-// 完全修正版 types.ts
-// 日勤専従対応 / 男女ペア夜勤優先 / 個別夜勤上限 / 明け翌日休み 対応版
-// ============================================================
-
 export type StaffGender = '男性' | '女性' | 'その他';
 
 // ── スタッフ ────────────────────────────────────────────────
@@ -130,6 +125,9 @@ export interface ScheduleConstraints {
   /** 夜勤が2人以上必要な日に男女混合を優先 */
   preferMixedGenderNightShift?: boolean;
 
+  /** 日曜・祝日の必要日勤人数。未設定時は 3 */
+  sunHolidayDayStaffRequired?: number;
+
   // 旧互換
   name?: string;
   description?: string;
@@ -153,6 +151,7 @@ export interface ConstraintsFormData {
   restAfterAke?: boolean;
   maxNightShiftsPerMonth?: number;
   preferMixedGenderNightShift?: boolean;
+  sunHolidayDayStaffRequired?: number;
 }
 
 // ── スケジュール生成パラメータ ─────────────────────────────
