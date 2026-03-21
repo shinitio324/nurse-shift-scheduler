@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Settings as SettingsIcon,
   Pencil,
@@ -90,7 +90,6 @@ export function ConstraintSettings() {
   const loadConstraint = async () => {
     try {
       setLoading(true);
-
       const all = await db.constraints.toArray().catch(() => []);
       const latest = all.length > 0 ? all[all.length - 1] : null;
 
@@ -181,7 +180,7 @@ export function ConstraintSettings() {
         updatedAt: new Date(),
       };
 
-      // 常に1件だけ保持して、生成側が確実にこの設定を読むようにする
+      // 最新1件のみ保持
       await db.transaction('rw', db.constraints, async () => {
         await db.constraints.clear();
         await db.constraints.add(payload as any);
@@ -243,8 +242,8 @@ export function ConstraintSettings() {
           <div className="text-sm text-blue-900">
             <p className="font-semibold">この画面で保存した設定が自動生成に使用されます</p>
             <p className="mt-1">
-              日勤専従スタッフ設定・個別夜勤上限はスタッフ側で管理し、
-              ここでは「全体の標準ルール」を設定します。
+              日勤専従設定・個別夜勤上限はスタッフ管理側で設定し、
+              ここでは全体の基準ルールを設定します。
             </p>
           </div>
         </div>
@@ -382,7 +381,6 @@ export function ConstraintSettings() {
               </div>
 
               <div className="space-y-6 px-6 py-5">
-                {/* 基本情報 */}
                 <Section title="基本情報" color="indigo">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <TextField
@@ -410,7 +408,6 @@ export function ConstraintSettings() {
                   </div>
                 </Section>
 
-                {/* 勤務制約 */}
                 <Section title="勤務制約" color="emerald">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <NumberField
@@ -455,7 +452,6 @@ export function ConstraintSettings() {
                   </div>
                 </Section>
 
-                {/* 夜勤制約 */}
                 <Section title="夜勤制約" color="purple">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <NumberField
@@ -487,7 +483,6 @@ export function ConstraintSettings() {
                   </div>
                 </Section>
 
-                {/* 明け・休み制約 */}
                 <Section title="明け・休み制約" color="cyan">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <CheckPanel
@@ -519,7 +514,6 @@ export function ConstraintSettings() {
                   </div>
                 </Section>
 
-                {/* 注意 */}
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
@@ -571,12 +565,13 @@ export function ConstraintSettings() {
   );
 }
 
-// ── 小UI ───────────────────────────────────────────────────
+// ── small UI parts ──────────────────────────────────────────
+
 function Badge({
   children,
   color,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   color: 'green' | 'indigo' | 'purple' | 'pink' | 'orange' | 'cyan';
 }) {
   const map = {
@@ -602,7 +597,7 @@ function Section({
 }: {
   title: string;
   color: 'indigo' | 'emerald' | 'purple' | 'cyan';
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const bar = {
     indigo: 'bg-indigo-600',
@@ -626,7 +621,7 @@ function Label({
   children,
   required = false,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   required?: boolean;
 }) {
   return (
@@ -743,7 +738,7 @@ function InfoCard({
   sub,
   tone,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   sub?: string;
@@ -778,8 +773,8 @@ function NoteBox({
   tone,
 }: {
   title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
   tone: 'pink' | 'purple' | 'cyan' | 'orange';
 }) {
   const toneMap = {
