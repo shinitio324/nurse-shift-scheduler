@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Settings as SettingsIcon,
   Pencil,
@@ -21,7 +21,7 @@ type ConstraintFormState = {
   maxConsecutiveWorkDays: number;
   minRestDaysBetweenNights: number;
   minWorkDaysPerMonth: number;
-  exactRestDaysPerMonth: number;
+  minRestDaysPerMonth: number;
   restAfterAke: boolean;
   maxNightShiftsPerMonth: number;
   preferMixedGenderNightShift: boolean;
@@ -34,7 +34,7 @@ const DEFAULT_FORM: ConstraintFormState = {
   maxConsecutiveWorkDays: 5,
   minRestDaysBetweenNights: 1,
   minWorkDaysPerMonth: 20,
-  exactRestDaysPerMonth: 8,
+  minRestDaysPerMonth: 9,
   restAfterAke: true,
   maxNightShiftsPerMonth: 8,
   preferMixedGenderNightShift: true,
@@ -47,6 +47,8 @@ function safeNumber(value: unknown, fallback: number): number {
 }
 
 function toFormState(value?: Partial<ScheduleConstraints> | null): ConstraintFormState {
+  const anyValue = value as any;
+
   return {
     name: String(value?.name ?? DEFAULT_FORM.name),
     description: String(value?.description ?? DEFAULT_FORM.description),
@@ -62,9 +64,9 @@ function toFormState(value?: Partial<ScheduleConstraints> | null): ConstraintFor
       value?.minWorkDaysPerMonth,
       DEFAULT_FORM.minWorkDaysPerMonth
     ),
-    exactRestDaysPerMonth: safeNumber(
-      value?.exactRestDaysPerMonth,
-      DEFAULT_FORM.exactRestDaysPerMonth
+    minRestDaysPerMonth: safeNumber(
+      value?.minRestDaysPerMonth ?? anyValue?.exactRestDaysPerMonth,
+      DEFAULT_FORM.minRestDaysPerMonth
     ),
     restAfterAke:
       value?.restAfterAke === undefined
@@ -79,7 +81,7 @@ function toFormState(value?: Partial<ScheduleConstraints> | null): ConstraintFor
         ? DEFAULT_FORM.preferMixedGenderNightShift
         : Boolean(value.preferMixedGenderNightShift),
     sunHolidayDayStaffRequired: safeNumber(
-      value?.sunHolidayDayStaffRequired,
+      anyValue?.sunHolidayDayStaffRequired,
       DEFAULT_FORM.sunHolidayDayStaffRequired
     ),
   };
@@ -136,7 +138,7 @@ export function ConstraintSettings() {
     setFormData(DEFAULT_FORM);
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name.trim()) {
@@ -159,8 +161,8 @@ export function ConstraintSettings() {
       return;
     }
 
-    if (formData.exactRestDaysPerMonth < 0 || formData.exactRestDaysPerMonth > 31) {
-      alert('月の休み固定日数は 0〜31 の範囲で入力してください');
+    if (formData.minRestDaysPerMonth < 0 || formData.minRestDaysPerMonth > 31) {
+      alert('月の最低休み日数は 0〜31 の範囲で入力してください');
       return;
     }
 
@@ -186,13 +188,14 @@ export function ConstraintSettings() {
         maxConsecutiveWorkDays: formData.maxConsecutiveWorkDays,
         minRestDaysBetweenNights: formData.minRestDaysBetweenNights,
         minWorkDaysPerMonth: formData.minWorkDaysPerMonth,
-        exactRestDaysPerMonth: formData.exactRestDaysPerMonth,
+        minRestDaysPerMonth: formData.minRestDaysPerMonth,
+        exactRestDaysPerMonth: 0, // 旧固定休みロジックは無効化
         restAfterAke: formData.restAfterAke,
         maxNightShiftsPerMonth: formData.maxNightShiftsPerMonth,
         preferMixedGenderNightShift: formData.preferMixedGenderNightShift,
-        sunHolidayDayStaffRequired: formData.sunHolidayDayStaffRequired,
         createdAt: currentConstraint?.createdAt ?? new Date(),
         updatedAt: new Date(),
+        ...( { sunHolidayDayStaffRequired: formData.sunHolidayDayStaffRequired } as any ),
       };
 
       await db.transaction('rw', db.constraints, async () => {
@@ -211,7 +214,8 @@ export function ConstraintSettings() {
     }
   };
 
-  const active = currentConstraint ?? DEFAULT_FORM;
+  const active = currentConstraint ?? (DEFAULT_FORM as any);
+  const activeAny = active as any;
 
   if (loading) {
     return (
@@ -299,13 +303,9 @@ export function ConstraintSettings() {
           />
           <InfoCard
             icon={<Calendar className="h-4 w-4 text-orange-600" />}
-            label="月の休み固定"
-            value={
-              safeNumber(active.exactRestDaysPerMonth, 0) > 0
-                ? `${safeNumber(active.exactRestDaysPerMonth, 0)}日`
-                : '無効'
-            }
-            sub="明け・有給を除く純休み"
+            label="最低休み日数"
+            value={`${safeNumber(active.minRestDaysPerMonth, 9)}日`}
+            sub="純休みの最低ライン"
             tone="orange"
           />
           <InfoCard
@@ -336,7 +336,7 @@ export function ConstraintSettings() {
           <InfoCard
             icon={<Calendar className="h-4 w-4 text-rose-600" />}
             label="日曜・祝日日勤"
-            value={`${safeNumber(active.sunHolidayDayStaffRequired, 3)}名`}
+            value={`${safeNumber(activeAny.sunHolidayDayStaffRequired, 3)}名`}
             sub="原則この人数を目標に割当"
             tone="rose"
           />
@@ -372,12 +372,12 @@ export function ConstraintSettings() {
         </NoteBox>
 
         <NoteBox
-          title="月の休み固定"
+          title="月の最低休み日数"
           icon={<Calendar className="h-4 w-4 text-orange-600" />}
           tone="orange"
         >
-          0 の場合は無効です。1 以上を指定すると、
-          明け・有給を除いた純休み日数がちょうどその日数になるよう調整します。
+          これは「固定」ではなく「最低ライン」です。9日を指定した場合、
+          9日以上は許容し、不足だけを警告・補正します。
         </NoteBox>
 
         <NoteBox
@@ -524,17 +524,17 @@ export function ConstraintSettings() {
                     />
 
                     <NumberField
-                      label="月の純休み固定日数"
+                      label="月の最低休み日数"
                       min={0}
                       max={31}
-                      value={formData.exactRestDaysPerMonth}
+                      value={formData.minRestDaysPerMonth}
                       onChange={(v) =>
                         setFormData((prev) => ({
                           ...prev,
-                          exactRestDaysPerMonth: v,
+                          minRestDaysPerMonth: v,
                         }))
                       }
-                      hint="0 = 無効 / 明け・有給を除いた純休み日数"
+                      hint="0 = 無効 / 9以上は許容"
                     />
                   </div>
                 </Section>
@@ -565,8 +565,8 @@ export function ConstraintSettings() {
                       <ul className="mt-2 list-disc space-y-1 pl-5">
                         <li>日勤専従の設定はスタッフ管理側で行います。</li>
                         <li>個別夜勤上限があるスタッフは、その値が全体夜勤上限より優先されます。</li>
-                        <li>夜勤可能スタッフが不足している場合、希望どおりに埋まらず警告が出ます。</li>
-                        <li>日曜・祝日の3名体制は「原則」です。希望や制約競合時は超過/不足警告が出ることがあります。</li>
+                        <li>日曜・祝日の3名体制は「原則」です。制約競合時は警告が出ることがあります。</li>
+                        <li>休みは「最低回数」です。必要人数の都合で9日を超えることはあります。</li>
                       </ul>
                     </div>
                   </div>
@@ -627,9 +627,7 @@ function Badge({
   };
 
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${map[color]}`}
-    >
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${map[color]}`}>
       {children}
     </span>
   );
