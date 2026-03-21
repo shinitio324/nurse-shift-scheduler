@@ -1,6 +1,6 @@
 // ============================================================
 // 完全修正版 types.ts
-// 男女ペア夜勤優先 / 個別夜勤上限 / 明け翌日休み 対応版
+// 日勤専従対応 / 男女ペア夜勤優先 / 個別夜勤上限 / 明け翌日休み 対応版
 // ============================================================
 
 export type StaffGender = '男性' | '女性' | 'その他';
@@ -13,10 +13,16 @@ export interface Staff {
   employmentType: '常勤' | '非常勤' | 'パート';
   qualifications: string[];
 
-  // ★ 追加
   gender?: StaffGender;
+
+  /** 月の最低勤務日数。0 or undefined = 制約なし */
   minWorkDaysPerMonth?: number;
-  maxNightShiftsPerMonth?: number; // 0 or undefined = 全体設定を使用
+
+  /** 月の個別夜勤上限。0 or undefined = 全体設定を使用 */
+  maxNightShiftsPerMonth?: number;
+
+  /** true = 夜勤可 / false = 日勤専従 */
+  canWorkNightShift?: boolean;
 
   createdAt: Date;
   updatedAt: Date;
@@ -28,10 +34,10 @@ export interface StaffFormData {
   employmentType: Staff['employmentType'];
   qualifications: string[];
 
-  // ★ 追加
   gender?: StaffGender;
   minWorkDaysPerMonth?: number;
   maxNightShiftsPerMonth?: number;
+  canWorkNightShift?: boolean;
 }
 
 // ── 勤務パターン ───────────────────────────────────────────
@@ -118,9 +124,11 @@ export interface ScheduleConstraints {
   exactRestDaysPerMonth?: number;
   restAfterAke?: boolean;
 
-  // ★ 追加
-  maxNightShiftsPerMonth?: number;          // 全体デフォルト上限
-  preferMixedGenderNightShift?: boolean;    // 男女ペア優先
+  /** 全体デフォルト夜勤上限 */
+  maxNightShiftsPerMonth?: number;
+
+  /** 夜勤が2人以上必要な日に男女混合を優先 */
+  preferMixedGenderNightShift?: boolean;
 
   // 旧互換
   name?: string;
