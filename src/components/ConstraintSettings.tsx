@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Settings as SettingsIcon,
   Pencil,
@@ -136,7 +136,7 @@ export function ConstraintSettings() {
     setFormData(DEFAULT_FORM);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
     if (!formData.name.trim()) {
@@ -195,7 +195,6 @@ export function ConstraintSettings() {
         updatedAt: new Date(),
       };
 
-      // 最新1件のみ保持
       await db.transaction('rw', db.constraints, async () => {
         await db.constraints.clear();
         await db.constraints.add(payload as any);
@@ -224,7 +223,6 @@ export function ConstraintSettings() {
 
   return (
     <div className="space-y-6">
-      {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-xl font-bold text-gray-800">制約設定</h3>
@@ -250,7 +248,6 @@ export function ConstraintSettings() {
         </div>
       </div>
 
-      {/* 説明 */}
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
         <div className="flex items-start gap-3">
           <SettingsIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600" />
@@ -264,7 +261,6 @@ export function ConstraintSettings() {
         </div>
       </div>
 
-      {/* 現在の設定概要 */}
       <div className="rounded-lg border-2 border-green-300 bg-white p-6 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <h4 className="text-lg font-bold text-gray-800">
@@ -347,7 +343,6 @@ export function ConstraintSettings() {
         </div>
       </div>
 
-      {/* 補足説明 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <NoteBox
           title="男女ペア夜勤優先"
@@ -395,7 +390,6 @@ export function ConstraintSettings() {
         </NoteBox>
       </div>
 
-      {/* フォームモーダル */}
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
@@ -615,8 +609,6 @@ export function ConstraintSettings() {
   );
 }
 
-// ── small UI parts ──────────────────────────────────────────
-
 function Badge({
   children,
   color,
@@ -635,7 +627,9 @@ function Badge({
   };
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${map[color]}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${map[color]}`}
+    >
       {children}
     </span>
   );
