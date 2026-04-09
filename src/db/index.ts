@@ -220,15 +220,20 @@ export async function ensureDefaultPatterns(): Promise<void> {
           maxConsecutiveWorkDays: 5,
           minRestDaysBetweenNights: 1,
           minWorkDaysPerMonth: 20,
-          exactRestDaysPerMonth: 8,
+          minRestDaysPerMonth: 9,
+          exactRestDaysPerMonth: 9,
           restAfterAke: true,
           maxNightShiftsPerMonth: 8,
           preferMixedGenderNightShift: true,
+          sunHolidayDayStaffRequired: 3,
         } as any);
         console.log('[DB] デフォルト制約を追加しました');
       } else {
-        const latest = allConstraints[allConstraints.length - 1];
+        const latest = allConstraints[allConstraints.length - 1] as any;
         if (latest?.id != null) {
+          const minRestDaysPerMonth =
+            latest.minRestDaysPerMonth ?? latest.exactRestDaysPerMonth ?? 9;
+
           await db.constraints.update(latest.id as number, {
             restAfterAke:
               latest.restAfterAke === undefined ? true : latest.restAfterAke,
@@ -240,6 +245,15 @@ export async function ensureDefaultPatterns(): Promise<void> {
               latest.preferMixedGenderNightShift === undefined
                 ? true
                 : latest.preferMixedGenderNightShift,
+            minRestDaysPerMonth,
+            exactRestDaysPerMonth:
+              latest.exactRestDaysPerMonth === undefined
+                ? minRestDaysPerMonth
+                : latest.exactRestDaysPerMonth,
+            sunHolidayDayStaffRequired:
+              latest.sunHolidayDayStaffRequired === undefined
+                ? 3
+                : latest.sunHolidayDayStaffRequired,
           });
           console.log('[DB] 制約不足項目を補完しました');
         }
