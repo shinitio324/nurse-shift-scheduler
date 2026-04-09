@@ -79,7 +79,7 @@ export class NurseSchedulerDB extends Dexie {
       generatedSchedules: '++id, staffId, date, patternId',
     });
 
-    // ★ v7: canWorkNightShift を追加（日勤専従対応）
+    // v7: canWorkNightShift を追加（日勤専従対応）
     this.version(7).stores({
       staff: 'id, name, position, employmentType, gender, canWorkNightShift, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
       shifts: 'id, staffId, date, shiftType, createdAt',
@@ -163,6 +163,28 @@ export const DEFAULT_PATTERNS = [
   },
 ] as const;
 
+// ── 制約デフォルト ───────────────────────────────────────────
+// 重要:
+// - 月別公休日数は scheduleAlgorithm.ts 側の
+//   getRequiredRestDaysForMonth() で固定管理する
+// - そのため minRestDaysPerMonth / exactRestDaysPerMonth は
+//   互換維持用として残す（旧UI/旧データとの整合用）
+// - 実際の公休判定は「休み」パターンのみを対象とし、有休・明けは含めない
+export const DEFAULT_CONSTRAINTS: Omit<ScheduleConstraints, 'id'> = {
+  maxConsecutiveWorkDays: 5,
+  minRestDaysBetweenNights: 1,
+  minWorkDaysPerMonth: 20,
+
+  // 互換維持用: 生成本体は scheduleAlgorithm.ts の月別固定値を使用
+  minRestDaysPerMonth: 9,
+  exactRestDaysPerMonth: 9,
+
+  restAfterAke: true,
+  maxNightShiftsPerMonth: 8,
+  preferMixedGenderNightShift: true,
+  sunHolidayDayStaffRequired: 3,
+};
+
 // ── 初期補完 ────────────────────────────────────────────────
 export async function ensureDefaultPatterns(): Promise<void> {
   try {
@@ -173,6 +195,7 @@ export async function ensureDefaultPatterns(): Promise<void> {
     for (const def of DEFAULT_PATTERNS) {
       if (patternNameSet.has(def.name)) {
         const old = existingPatterns.find((p: any) => p.name === def.name);
+
         if (
           old &&
           (
@@ -180,7 +203,9 @@ export async function ensureDefaultPatterns(): Promise<void> {
             old.isAke === undefined ||
             old.isVacation === undefined ||
             old.requiredStaff === undefined ||
-            old.isWorkday === undefined
+            old.isWorkday === undefined ||
+            old.shortName === undefined ||
+            old.sortOrder === undefined
           )
         ) {
           await db.shiftPatterns
@@ -200,6 +225,7 @@ export async function ensureDefaultPatterns(): Promise<void> {
 
           console.log(`[DB] パターン更新: ${def.name}`);
         }
+
         continue;
       }
 
@@ -216,45 +242,67 @@ export async function ensureDefaultPatterns(): Promise<void> {
       const allConstraints = await db.constraints.toArray().catch(() => []);
 
       if (allConstraints.length === 0) {
-        await db.constraints.add({
-          maxConsecutiveWorkDays: 5,
-          minRestDaysBetweenNights: 1,
-          minWorkDaysPerMonth: 20,
-          minRestDaysPerMonth: 9,
-          exactRestDaysPerMonth: 9,
-          restAfterAke: true,
-          maxNightShiftsPerMonth: 8,
-          preferMixedGenderNightShift: true,
-          sunHolidayDayStaffRequired: 3,
-        } as any);
+        await db.constraints.add(DEFAULT_CONSTRAINTS as any);
         console.log('[DB] デフォルト制約を追加しました');
       } else {
         const latest = allConstraints[allConstraints.length - 1] as any;
-        if (latest?.id != null) {
-          const minRestDaysPerMonth =
-            latest.minRestDaysPerMonth ?? latest.exactRestDaysPerMonth ?? 9;
 
+        if (latest?.id != null) {
           await db.constraints.update(latest.id as number, {
-            restAfterAke:
-              latest.restAfterAke === undefined ? true : latest.restAfterAke,
-            maxNightShiftsPerMonth:
-              latest.maxNightShiftsPerMonth === undefined
-                ? 8
-                : latest.maxNightShiftsPerMonth,
-            preferMixedGenderNightShift:
-              latest.preferMixedGenderNightShift === undefined
-                ? true
-                : latest.preferMixedGenderNightShift,
-            minRestDaysPerMonth,
+            maxConsecutiveWorkDays:
+              latest.maxConsecutiveWorkDays === undefined
+                ? DEFAULT_CONSTRAINTS.maxConsecutiveWorkDays
+                : latest.maxConsecutiveWorkDays,
+
+            minRestDaysBetweenNights:
+              latest.minRestDaysBetweenNights === undefined
+                ? DEFAULT_CONSTRAINTS.minRestDaysBetweenNights
+                : latest.minRestDaysBetweenNights,
+
+            minWorkDaysPerMonth:
+              latest.minWorkDaysPerMonth === undefined
+                ? DEFAULT_CONSTRAINTS.minWorkDaysPerMonth
+                : latest.minWorkDaysPerMonth,
+
+            // 互換維持用:
+            // 実際の月別公休数は scheduleAlgorithm.ts 側で固定管理
+            minRestDaysPerMonth:
+              latest.minRestDaysPerMonth === undefined
+                ? (
+                    latest.exactRestDaysPerMonth ??
+                    DEFAULT_CONSTRAINTS.minRestDaysPerMonth
+                  )
+                : latest.minRestDaysPerMonth,
+
             exactRestDaysPerMonth:
               latest.exactRestDaysPerMonth === undefined
-                ? minRestDaysPerMonth
+                ? (
+                    latest.minRestDaysPerMonth ??
+                    DEFAULT_CONSTRAINTS.exactRestDaysPerMonth
+                  )
                 : latest.exactRestDaysPerMonth,
+
+            restAfterAke:
+              latest.restAfterAke === undefined
+                ? DEFAULT_CONSTRAINTS.restAfterAke
+                : latest.restAfterAke,
+
+            maxNightShiftsPerMonth:
+              latest.maxNightShiftsPerMonth === undefined
+                ? DEFAULT_CONSTRAINTS.maxNightShiftsPerMonth
+                : latest.maxNightShiftsPerMonth,
+
+            preferMixedGenderNightShift:
+              latest.preferMixedGenderNightShift === undefined
+                ? DEFAULT_CONSTRAINTS.preferMixedGenderNightShift
+                : latest.preferMixedGenderNightShift,
+
             sunHolidayDayStaffRequired:
               latest.sunHolidayDayStaffRequired === undefined
-                ? 3
+                ? DEFAULT_CONSTRAINTS.sunHolidayDayStaffRequired
                 : latest.sunHolidayDayStaffRequired,
           });
+
           console.log('[DB] 制約不足項目を補完しました');
         }
       }
