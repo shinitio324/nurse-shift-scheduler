@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { db } from '../db';
+import { useCallback, useEffect, useState } from 'react';
+import { db } from '../db/index';
 import type {
   Shift,
   ShiftPattern,
   ShiftRequest,
   ShiftRequestFormData,
   Staff,
+  StaffId,
+  PatternId,
 } from '../types';
 import {
   compareDateStrings,
@@ -16,7 +18,7 @@ import {
 
 type RequestSource = 'shiftRequests' | 'shifts';
 
-type InternalShiftRequest = ShiftRequest & {
+export type ShiftRequestListItem = Omit<ShiftRequest, 'id'> & {
   id: string;
   __source: RequestSource;
   __rawId: string | number;
@@ -28,82 +30,176 @@ function encodeId(source: RequestSource, rawId: string | number): string {
 
 function decodeId(id: string): { source: RequestSource; rawId: string } | null {
   if (id.startsWith('shiftRequests:')) {
-    return { source: 'shiftRequests', rawId: id.slice('shiftRequests:'.length) };
+    return {
+      source: 'shiftRequests',
+      rawId: id.slice('shiftRequests:'.length),
+    };
   }
+
   if (id.startsWith('shifts:')) {
-    return { source: 'shifts', rawId: id.slice('shifts:'.length) };
+    return {
+      source: 'shifts',
+      rawId: id.slice('shifts:'.length),
+    };
   }
+
   return null;
 }
 
+function sameId(a: unknown, b: unknown): boolean {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+function toNumericId(id: unknown): number | undefined {
+  if (id == null || id === '') return undefined;
+  const n = Number(id);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizePatternId(id: unknown): PatternId | undefined {
+  const numeric = toNumericId(id);
+  if (numeric !== undefined) return numeric;
+  if (id == null || id === '') return undefined;
+  return String(id);
+}
+
+function normalizeStaffId(id: unknown): StaffId {
+  if (id == null) return '';
+  return String(id);
+}
+
+function safeString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : String(value ?? fallback);
+}
+
+function buildStaffMap(staffList: Staff[]): Map<string, Staff> {
+  const map = new Map<string, Staff>();
+  for (const member of staffList) {
+    if (member?.id == null) continue;
+    map.set(String(member.id), member);
+  }
+  return map;
+}
+
+function buildPatternMaps(patterns: ShiftPattern[]) {
+  const byId = new Map<string, ShiftPattern>();
+  const byName = new Map<string, ShiftPattern>();
+
+  for (const pattern of patterns) {
+    if (!pattern) continue;
+    if (pattern.id != null) {
+      byId.set(String(pattern.id), pattern);
+    }
+    byName.set(String(pattern.name ?? ''), pattern);
+  }
+
+  return { byId, byName };
+}
+
+function findPatternByFormData(
+  patterns: ShiftPattern[],
+  data: Partial<ShiftRequestFormData>
+): ShiftPattern | undefined {
+  if (data.patternId != null) {
+    return patterns.find((p) => sameId(p.id, data.patternId));
+  }
+
+  if (data.shiftType != null) {
+    return patterns.find((p) => String(p.name ?? '') === String(data.shiftType));
+  }
+
+  return undefined;
+}
+
+function isDuplicateRequest(
+  rows: Array<{ staffId?: unknown; date?: unknown }>,
+  staffId: StaffId,
+  normalizedDate: string,
+  ignoreRawId?: string | number
+): boolean {
+  return rows.some((row: any) => {
+    if (!sameId(row?.staffId, staffId)) return false;
+    if (normalizeDateString(String(row?.date ?? '')) !== normalizedDate) return false;
+    if (ignoreRawId != null && String(row?.id) === String(ignoreRawId)) return false;
+    return true;
+  });
+}
+
 export function useShiftRequests() {
-  const [shiftRequests, setShiftRequests] = useState<InternalShiftRequest[]>([]);
+  const [shiftRequests, setShiftRequests] = useState<ShiftRequestListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadShiftRequests = async () => {
+  const loadShiftRequests = useCallback(async () => {
     try {
       setLoading(true);
 
-      const [requestRows, legacyRows, staff, patterns] = await Promise.all([
+      const [requestRows, legacyRows, staffRows, patternRows] = await Promise.all([
         db.shiftRequests.toArray().catch(() => []),
         db.shifts.toArray().catch(() => []),
         db.staff.toArray().catch(() => []),
         db.shiftPatterns.toArray().catch(() => []),
       ]);
 
-      const staffMap = new Map<string, Staff>();
-      staff.forEach((s) => staffMap.set(String(s.id), s));
+      const staffMap = buildStaffMap(staffRows as Staff[]);
+      const { byId: patternById, byName: patternByName } = buildPatternMaps(
+        patternRows as ShiftPattern[]
+      );
 
-      const patternById = new Map<string, ShiftPattern>();
-      const patternByName = new Map<string, ShiftPattern>();
-      patterns.forEach((p) => {
-        if (p?.id != null) {
-          patternById.set(String(p.id), p);
+      const normalizedFromRequests: ShiftRequestListItem[] = (requestRows as any[]).map(
+        (row) => {
+          const patternId = normalizePatternId(row?.patternId);
+          const pattern =
+            patternId != null ? patternById.get(String(patternId)) : undefined;
+          const staffId = normalizeStaffId(row?.staffId);
+
+          return {
+            ...(row as ShiftRequest),
+            id: encodeId('shiftRequests', row.id),
+            __source: 'shiftRequests',
+            __rawId: row.id,
+            staffId,
+            date: normalizeDateString(safeString(row?.date)),
+            shiftType: safeString(row?.shiftType, pattern?.name ?? ''),
+            patternId,
+            staffName: staffMap.get(String(staffId))?.name ?? '不明なスタッフ',
+            status: (row?.status ?? 'pending') as ShiftRequest['status'],
+            requestedAt: row?.requestedAt ?? row?.createdAt ?? new Date(),
+          };
         }
-        patternByName.set(String(p.name ?? ''), p);
-      });
+      );
 
-      const fromShiftRequests: InternalShiftRequest[] = (requestRows as any[]).map((row) => {
-        const pattern = row?.patternId != null ? patternById.get(String(row.patternId)) : undefined;
-        return {
-          ...(row as any),
-          id: encodeId('shiftRequests', row.id),
-          __source: 'shiftRequests',
-          __rawId: row.id,
-          staffId: String(row.staffId ?? ''),
-          date: normalizeDateString(String(row.date ?? '')),
-          shiftType: String(row.shiftType ?? pattern?.name ?? ''),
-          patternId: row.patternId,
-          staffName: staffMap.get(String(row.staffId ?? ''))?.name || '不明なスタッフ',
-          status: (row.status ?? 'pending') as ShiftRequest['status'],
-          requestedAt: row.requestedAt ?? row.createdAt ?? new Date(),
-        };
-      });
+      const normalizedFromLegacy: ShiftRequestListItem[] = (legacyRows as any[]).map(
+        (row) => {
+          const shiftType = safeString(row?.shiftType);
+          const pattern = patternByName.get(shiftType);
+          const staffId = normalizeStaffId(row?.staffId);
 
-      const fromLegacyShifts: InternalShiftRequest[] = (legacyRows as any[]).map((shift) => {
-        const shiftType = String(shift.shiftType ?? '');
-        const pattern = patternByName.get(shiftType);
-        return {
-          ...(shift as any),
-          id: encodeId('shifts', shift.id),
-          __source: 'shifts',
-          __rawId: shift.id,
-          staffId: String(shift.staffId ?? ''),
-          date: normalizeDateString(String(shift.date ?? '')),
-          shiftType,
-          patternId: pattern?.id,
-          staffName: staffMap.get(String(shift.staffId ?? ''))?.name || '不明なスタッフ',
-          status: 'pending' as const,
-          requestedAt: shift.createdAt ?? new Date(),
-        };
-      });
+          return {
+            ...(row as ShiftRequest),
+            id: encodeId('shifts', row.id),
+            __source: 'shifts',
+            __rawId: row.id,
+            staffId,
+            date: normalizeDateString(safeString(row?.date)),
+            shiftType,
+            patternId: normalizePatternId(pattern?.id),
+            staffName: staffMap.get(String(staffId))?.name ?? '不明なスタッフ',
+            status: 'pending',
+            requestedAt: row?.createdAt ?? new Date(),
+          };
+        }
+      );
 
-      const merged: InternalShiftRequest[] = [];
+      const merged: ShiftRequestListItem[] = [];
       const seen = new Set<string>();
 
-      for (const req of [...fromShiftRequests, ...fromLegacyShifts]) {
-        const key = `${req.staffId}__${req.date}`;
+      for (const req of [...normalizedFromRequests, ...normalizedFromLegacy]) {
+        if (!req.staffId || !req.date) continue;
+
+        const key = `${String(req.staffId)}__${req.date}`;
         if (seen.has(key)) continue;
+
         seen.add(key);
         merged.push(req);
       }
@@ -111,246 +207,351 @@ export function useShiftRequests() {
       merged.sort((a, b) => compareDateStrings(b.date, a.date));
       setShiftRequests(merged);
     } catch (error) {
-      console.error('シフトリクエストの読み込みに失敗しました:', error);
+      console.error('シフト希望の読み込みに失敗しました:', error);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadShiftRequests();
   }, []);
 
-  const addShiftRequest = async (data: ShiftRequestFormData): Promise<boolean> => {
-    try {
-      const normalizedDate = normalizeDateString(data.date);
-      const normalizedShiftType = String(data.shiftType ?? '');
+  useEffect(() => {
+    void loadShiftRequests();
+  }, [loadShiftRequests]);
 
-      const [existingRequest, existingLegacy, patterns] = await Promise.all([
-        db.shiftRequests
-          .where('staffId')
-          .equals(data.staffId as any)
-          .and((row: any) => normalizeDateString(String(row.date ?? '')) === normalizedDate)
-          .first(),
-        db.shifts
-          .where('staffId')
-          .equals(data.staffId as any)
-          .and((row: any) => normalizeDateString(String(row.date ?? '')) === normalizedDate)
-          .first(),
-        db.shiftPatterns.toArray().catch(() => []),
-      ]);
+  const addShiftRequest = useCallback(
+    async (data: ShiftRequestFormData): Promise<boolean> => {
+      try {
+        const normalizedDate = normalizeDateString(data.date);
+        const normalizedStaffId = normalizeStaffId(data.staffId);
 
-      if (existingRequest || existingLegacy) {
-        console.warn('このスタッフは既にこの日のシフト希望が登録されています。');
-        return false;
-      }
+        const [requestRows, legacyRows, patterns] = await Promise.all([
+          db.shiftRequests.toArray().catch(() => []),
+          db.shifts.toArray().catch(() => []),
+          db.shiftPatterns.toArray().catch(() => []),
+        ]);
 
-      const pattern = (patterns as ShiftPattern[]).find(
-        (p) => String(p.name ?? '') === normalizedShiftType
-      );
-
-      const now = new Date();
-
-      await db.shiftRequests.add({
-        staffId: data.staffId,
-        date: normalizedDate,
-        shiftType: normalizedShiftType,
-        patternId: pattern?.id,
-        status: 'pending',
-        note: data.note,
-        requestedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      } as any);
-
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストの追加に失敗しました:', error);
-      return false;
-    }
-  };
-
-  const updateShiftRequest = async (
-    id: string,
-    data: Partial<ShiftRequestFormData>
-  ): Promise<boolean> => {
-    try {
-      const decoded = decodeId(id);
-      if (!decoded) return false;
-
-      const patterns = await db.shiftPatterns.toArray().catch(() => []);
-      const normalizedShiftType =
-        data.shiftType !== undefined ? String(data.shiftType) : undefined;
-      const pattern = normalizedShiftType
-        ? (patterns as ShiftPattern[]).find((p) => String(p.name ?? '') === normalizedShiftType)
-        : undefined;
-
-      if (decoded.source === 'shiftRequests') {
-        const payload: Record<string, unknown> = {
-          updatedAt: new Date(),
-        };
-
-        if (data.date) {
-          payload.date = normalizeDateString(data.date);
-        }
-        if (normalizedShiftType !== undefined) {
-          payload.shiftType = normalizedShiftType;
-          payload.patternId = pattern?.id;
-        }
-
-        await db.shiftRequests.update(Number(decoded.rawId), payload as any);
-      } else {
-        const payload: Partial<Shift> = {
-          updatedAt: new Date(),
-        };
-
-        if (data.date) {
-          payload.date = normalizeDateString(data.date);
-        }
-        if (normalizedShiftType !== undefined) {
-          payload.shiftType = normalizedShiftType;
-        }
-
-        await db.shifts.update(decoded.rawId, payload as any);
-      }
-
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストの更新に失敗しました:', error);
-      return false;
-    }
-  };
-
-  const deleteShiftRequest = async (id: string): Promise<boolean> => {
-    try {
-      const decoded = decodeId(id);
-      if (!decoded) return false;
-
-      if (decoded.source === 'shiftRequests') {
-        await db.shiftRequests.delete(Number(decoded.rawId));
-      } else {
-        await db.shifts.delete(decoded.rawId as any);
-      }
-
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストの削除に失敗しました:', error);
-      return false;
-    }
-  };
-
-  const getShiftRequestsByStaff = (staffId: string): ShiftRequest[] => {
-    return shiftRequests.filter((req) => req.staffId === staffId);
-  };
-
-  const getShiftRequestsByDate = (date: string): ShiftRequest[] => {
-    const normalizedDate = normalizeDateString(date);
-    return shiftRequests.filter((req) => req.date === normalizedDate);
-  };
-
-  const getShiftRequestsByMonth = (year: number, month: number): ShiftRequest[] => {
-    const startDate = getMonthStartDateString(year, month);
-    const endDate = getMonthEndDateString(year, month);
-
-    return shiftRequests.filter(
-      (req) => req.date >= startDate && req.date <= endDate
-    );
-  };
-
-  const getShiftRequestsByStaffAndMonth = (
-    staffId: string,
-    year: number,
-    month: number
-  ): ShiftRequest[] => {
-    return getShiftRequestsByMonth(year, month).filter((req) => req.staffId === staffId);
-  };
-
-  const getMonthlyStats = (year: number, month: number) => {
-    const monthRequests = getShiftRequestsByMonth(year, month);
-
-    const shiftTypeCounts: Record<string, number> = {};
-    monthRequests.forEach((req) => {
-      shiftTypeCounts[req.shiftType] = (shiftTypeCounts[req.shiftType] || 0) + 1;
-    });
-
-    const staffCounts: Record<string, number> = {};
-    monthRequests.forEach((req) => {
-      const name = req.staffName || '不明';
-      staffCounts[name] = (staffCounts[name] || 0) + 1;
-    });
-
-    return {
-      total: monthRequests.length,
-      byShiftType: shiftTypeCounts,
-      byStaff: staffCounts,
-    };
-  };
-
-  const addBulkShiftRequests = async (
-    requests: ShiftRequestFormData[]
-  ): Promise<boolean> => {
-    try {
-      for (const req of requests) {
-        const ok = await addShiftRequest(req);
-        if (!ok) {
+        if (
+          isDuplicateRequest(requestRows as any[], normalizedStaffId, normalizedDate) ||
+          isDuplicateRequest(legacyRows as any[], normalizedStaffId, normalizedDate)
+        ) {
+          console.warn('このスタッフは既にこの日のシフト希望が登録されています。');
           return false;
         }
+
+        const matchedPattern = findPatternByFormData(patterns as ShiftPattern[], data);
+        const finalShiftType =
+          data.shiftType != null && String(data.shiftType).length > 0
+            ? String(data.shiftType)
+            : String(matchedPattern?.name ?? '');
+
+        const now = new Date();
+
+        await db.shiftRequests.add({
+          staffId: normalizedStaffId,
+          date: normalizedDate,
+          shiftType: finalShiftType,
+          patternId: normalizePatternId(data.patternId ?? matchedPattern?.id),
+          status: 'pending',
+          note: data.note,
+          requestedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        } as ShiftRequest);
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('シフト希望の追加に失敗しました:', error);
+        return false;
       }
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストの一括追加に失敗しました:', error);
-      return false;
-    }
-  };
+    },
+    [loadShiftRequests]
+  );
 
-  const deleteShiftRequestsByDateRange = async (
-    startDate: string,
-    endDate: string
-  ): Promise<boolean> => {
-    try {
-      const start = normalizeDateString(startDate);
-      const end = normalizeDateString(endDate);
+  const updateShiftRequest = useCallback(
+    async (id: string, data: Partial<ShiftRequestFormData>): Promise<boolean> => {
+      try {
+        const decoded = decodeId(id);
+        if (!decoded) return false;
 
-      const toDelete = shiftRequests.filter(
-        (req) => req.date >= start && req.date <= end
+        const [requestRows, legacyRows, patterns] = await Promise.all([
+          db.shiftRequests.toArray().catch(() => []),
+          db.shifts.toArray().catch(() => []),
+          db.shiftPatterns.toArray().catch(() => []),
+        ]);
+
+        const matchedPattern = findPatternByFormData(patterns as ShiftPattern[], data);
+        const normalizedDate =
+          data.date !== undefined ? normalizeDateString(data.date) : undefined;
+        const normalizedStaffId =
+          data.staffId !== undefined ? normalizeStaffId(data.staffId) : undefined;
+        const normalizedShiftType =
+          data.shiftType !== undefined
+            ? String(data.shiftType)
+            : matchedPattern?.name !== undefined
+            ? String(matchedPattern.name)
+            : undefined;
+        const nextPatternId =
+          data.patternId !== undefined || matchedPattern?.id !== undefined
+            ? normalizePatternId(data.patternId ?? matchedPattern?.id)
+            : undefined;
+
+        if (decoded.source === 'shiftRequests') {
+          const current = (requestRows as any[]).find(
+            (row) => String(row?.id) === String(decoded.rawId)
+          );
+          if (!current) return false;
+
+          const nextStaffId = normalizedStaffId ?? normalizeStaffId(current.staffId);
+          const nextDate = normalizedDate ?? normalizeDateString(String(current.date ?? ''));
+
+          const duplicateInRequests = isDuplicateRequest(
+            requestRows as any[],
+            nextStaffId,
+            nextDate,
+            decoded.rawId
+          );
+
+          const duplicateInLegacy = isDuplicateRequest(
+            legacyRows as any[],
+            nextStaffId,
+            nextDate
+          );
+
+          if (duplicateInRequests || duplicateInLegacy) {
+            console.warn('更新後のスタッフ・日付に重複するシフト希望があります。');
+            return false;
+          }
+
+          const payload: Partial<ShiftRequest> = {
+            updatedAt: new Date(),
+          };
+
+          if (normalizedStaffId !== undefined) {
+            payload.staffId = normalizedStaffId;
+          }
+
+          if (normalizedDate !== undefined) {
+            payload.date = normalizedDate;
+          }
+
+          if (normalizedShiftType !== undefined) {
+            payload.shiftType = normalizedShiftType;
+          }
+
+          if (data.patternId !== undefined || matchedPattern?.id !== undefined) {
+            payload.patternId = nextPatternId;
+          }
+
+          if (data.note !== undefined) {
+            payload.note = data.note;
+          }
+
+          await db.shiftRequests.update(Number(decoded.rawId), payload as any);
+        } else {
+          const current = (legacyRows as any[]).find(
+            (row) => String(row?.id) === String(decoded.rawId)
+          );
+          if (!current) return false;
+
+          const nextStaffId = normalizedStaffId ?? normalizeStaffId(current.staffId);
+          const nextDate = normalizedDate ?? normalizeDateString(String(current.date ?? ''));
+
+          const duplicateInRequests = isDuplicateRequest(
+            requestRows as any[],
+            nextStaffId,
+            nextDate
+          );
+
+          const duplicateInLegacy = isDuplicateRequest(
+            legacyRows as any[],
+            nextStaffId,
+            nextDate,
+            decoded.rawId
+          );
+
+          if (duplicateInRequests || duplicateInLegacy) {
+            console.warn('更新後のスタッフ・日付に重複するシフト希望があります。');
+            return false;
+          }
+
+          const payload: Partial<Shift> = {
+            updatedAt: new Date(),
+          };
+
+          if (normalizedStaffId !== undefined) {
+            payload.staffId = normalizedStaffId;
+          }
+
+          if (normalizedDate !== undefined) {
+            payload.date = normalizedDate;
+          }
+
+          if (normalizedShiftType !== undefined) {
+            payload.shiftType = normalizedShiftType;
+          }
+
+          if (data.note !== undefined) {
+            payload.note = data.note;
+          }
+
+          await db.shifts.update(decoded.rawId as any, payload as any);
+        }
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('シフト希望の更新に失敗しました:', error);
+        return false;
+      }
+    },
+    [loadShiftRequests]
+  );
+
+  const deleteShiftRequest = useCallback(
+    async (id: string): Promise<boolean> => {
+      try {
+        const decoded = decodeId(id);
+        if (!decoded) return false;
+
+        if (decoded.source === 'shiftRequests') {
+          await db.shiftRequests.delete(Number(decoded.rawId));
+        } else {
+          await db.shifts.delete(decoded.rawId as any);
+        }
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('シフト希望の削除に失敗しました:', error);
+        return false;
+      }
+    },
+    [loadShiftRequests]
+  );
+
+  const getShiftRequestsByStaff = useCallback(
+    (staffId: StaffId): ShiftRequestListItem[] => {
+      return shiftRequests.filter((req) => sameId(req.staffId, staffId));
+    },
+    [shiftRequests]
+  );
+
+  const getShiftRequestsByDate = useCallback(
+    (date: string): ShiftRequestListItem[] => {
+      const normalizedDate = normalizeDateString(date);
+      return shiftRequests.filter((req) => req.date === normalizedDate);
+    },
+    [shiftRequests]
+  );
+
+  const getShiftRequestsByMonth = useCallback(
+    (year: number, month: number): ShiftRequestListItem[] => {
+      const startDate = getMonthStartDateString(year, month);
+      const endDate = getMonthEndDateString(year, month);
+
+      return shiftRequests.filter(
+        (req) => req.date >= startDate && req.date <= endDate
       );
+    },
+    [shiftRequests]
+  );
 
-      for (const req of toDelete) {
-        await deleteShiftRequest(req.id);
+  const getShiftRequestsByStaffAndMonth = useCallback(
+    (staffId: StaffId, year: number, month: number): ShiftRequestListItem[] => {
+      return getShiftRequestsByMonth(year, month).filter((req) =>
+        sameId(req.staffId, staffId)
+      );
+    },
+    [getShiftRequestsByMonth]
+  );
+
+  const getMonthlyStats = useCallback(
+    (year: number, month: number) => {
+      const monthRequests = getShiftRequestsByMonth(year, month);
+
+      const shiftTypeCounts: Record<string, number> = {};
+      const staffCounts: Record<string, number> = {};
+
+      for (const req of monthRequests) {
+        const shiftType = String(req.shiftType ?? '');
+        const staffName = String(req.staffName ?? '不明');
+
+        shiftTypeCounts[shiftType] = (shiftTypeCounts[shiftType] || 0) + 1;
+        staffCounts[staffName] = (staffCounts[staffName] || 0) + 1;
       }
 
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストの削除に失敗しました:', error);
-      return false;
-    }
-  };
+      return {
+        total: monthRequests.length,
+        byShiftType: shiftTypeCounts,
+        byStaff: staffCounts,
+      };
+    },
+    [getShiftRequestsByMonth]
+  );
 
-  const clearStaffMonthShifts = async (
-    staffId: string,
-    year: number,
-    month: number
-  ): Promise<boolean> => {
-    try {
-      const toDelete = getShiftRequestsByStaffAndMonth(staffId, year, month);
-      for (const req of toDelete) {
-        await deleteShiftRequest(String(req.id));
+  const addBulkShiftRequests = useCallback(
+    async (requests: ShiftRequestFormData[]): Promise<boolean> => {
+      try {
+        for (const req of requests) {
+          const ok = await addShiftRequest(req);
+          if (!ok) return false;
+        }
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('シフト希望の一括追加に失敗しました:', error);
+        return false;
       }
-      await loadShiftRequests();
-      return true;
-    } catch (error) {
-      console.error('シフトリクエストのクリアに失敗しました:', error);
-      return false;
-    }
-  };
+    },
+    [addShiftRequest, loadShiftRequests]
+  );
+
+  const deleteShiftRequestsByDateRange = useCallback(
+    async (startDate: string, endDate: string): Promise<boolean> => {
+      try {
+        const start = normalizeDateString(startDate);
+        const end = normalizeDateString(endDate);
+
+        const targets = shiftRequests.filter(
+          (req) => req.date >= start && req.date <= end
+        );
+
+        for (const req of targets) {
+          await deleteShiftRequest(req.id);
+        }
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('日付範囲のシフト希望削除に失敗しました:', error);
+        return false;
+      }
+    },
+    [deleteShiftRequest, loadShiftRequests, shiftRequests]
+  );
+
+  const clearStaffMonthShifts = useCallback(
+    async (staffId: StaffId, year: number, month: number): Promise<boolean> => {
+      try {
+        const targets = getShiftRequestsByStaffAndMonth(staffId, year, month);
+
+        for (const req of targets) {
+          await deleteShiftRequest(req.id);
+        }
+
+        await loadShiftRequests();
+        return true;
+      } catch (error) {
+        console.error('スタッフ月間シフト希望のクリアに失敗しました:', error);
+        return false;
+      }
+    },
+    [deleteShiftRequest, getShiftRequestsByStaffAndMonth, loadShiftRequests]
+  );
 
   return {
-    shiftRequests: shiftRequests as ShiftRequest[],
+    shiftRequests,
     loading,
     addShiftRequest,
     updateShiftRequest,
