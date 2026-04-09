@@ -662,11 +662,23 @@ export class ScheduleGenerator {
     return normalDayRequired;
   }
 
-  private getMinRestDays(constraints: ScheduleConstraints): number {
-    return safeNumber(
-      constraints.minRestDaysPerMonth ?? constraints.exactRestDaysPerMonth,
-      9
-    );
+  private getRequiredRestDaysForMonth(): number {
+    const monthlyRestDaysMap: Record<number, number> = {
+      1: 10,
+      2: 8,
+      3: 9,
+      4: 9,
+      5: 10,
+      6: 9,
+      7: 9,
+      8: 10,
+      9: 9,
+      10: 9,
+      11: 9,
+      12: 9,
+    };
+
+    return monthlyRestDaysMap[this.month] ?? 9;
   }
 
   // ─────────────────────────────────────────────────────────
@@ -1004,7 +1016,7 @@ export class ScheduleGenerator {
   ): void {
     if (this.restPatternId === null) return;
 
-    const targetRest = this.getMinRestDays(constraints);
+    const targetRest = this.getRequiredRestDaysForMonth();
     const maxConsecutive = safeNumber(constraints.maxConsecutiveWorkDays, 0);
     const totalDays = getDaysInMonth(this.year, this.month);
     const dayOfMonth = parseDateString(dateStr).getDate();
@@ -1235,9 +1247,9 @@ export class ScheduleGenerator {
     constraints: ScheduleConstraints,
     patterns: ShiftPattern[]
   ): void {
-    if (this.restPatternId === null) return;
+    if (this.restPatternId === null || this.dayPatternId === null) return;
 
-    const target = this.getMinRestDays(constraints);
+    const target = this.getRequiredRestDaysForMonth();
     if (target <= 0) return;
 
     for (const member of staff) {
@@ -1249,12 +1261,11 @@ export class ScheduleGenerator {
         .filter((s) => sameId(s?.staffId, mid))
         .sort((a, b) => a.date.localeCompare(b.date));
 
-      const restEntries = mine.filter((s) =>
+      let restCount = mine.filter((s) =>
         sameId(s?.patternId, this.restPatternId)
-      );
-      const restCount = restEntries.length;
+      ).length;
 
-      // 最低休み日数に足りない場合のみ、日勤などから休みに変換
+      // 公休が不足している場合、日勤などから休みに変換
       if (restCount < target) {
         const need = target - restCount;
 
@@ -1288,6 +1299,33 @@ export class ScheduleGenerator {
               ...schedule[idx],
               patternId: this.restPatternId,
             };
+            restCount += 1;
+          }
+        }
+      }
+
+      // 公休が多すぎる場合、保護対象でない休みを日勤へ戻す
+      if (restCount > target) {
+        let over = restCount - target;
+
+        const candidates = mine
+          .filter((s) => {
+            if (!sameId(s?.patternId, this.restPatternId)) return false;
+            if (s.isManual) return false;
+            if (this.isProtectedRestAfterAke(schedule, mid, s.date)) return false;
+            return this.canConvertRestToDaySafely(schedule, s.date, patterns, constraints);
+          })
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        for (const entry of candidates) {
+          if (over <= 0) break;
+          const idx = schedule.indexOf(entry);
+          if (idx >= 0) {
+            schedule[idx] = {
+              ...schedule[idx],
+              patternId: this.dayPatternId,
+            };
+            over -= 1;
           }
         }
       }
@@ -1336,7 +1374,7 @@ export class ScheduleGenerator {
   ): void {
     if (this.restPatternId === null) return;
 
-    const target = this.getMinRestDays(constraints);
+    const target = this.getRequiredRestDaysForMonth();
     if (target <= 0) return;
 
     for (const member of staff) {
@@ -1350,7 +1388,13 @@ export class ScheduleGenerator {
 
       if (restCount < target) {
         warnings.push(
-          `${member.name ?? 'スタッフ'}: 休み日数 ${restCount}日（最低 ${target}日未満）`
+          `${member.name ?? 'スタッフ'}: 公休不足 ${restCount}/${target}`
+        );
+      }
+
+      if (restCount > target) {
+        warnings.push(
+          `${member.name ?? 'スタッフ'}: 公休超過 ${restCount}/${target}`
         );
       }
     }
