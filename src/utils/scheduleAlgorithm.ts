@@ -415,8 +415,11 @@ async function fetchConstraints(): Promise<ScheduleConstraints> {
     maxConsecutiveWorkDays: 5,
     minRestDaysBetweenNights: 1,
     minWorkDaysPerMonth: 20,
+
+    // DB互換用として残すが、公休数の本体判定には使用しない
     minRestDaysPerMonth: 9,
     exactRestDaysPerMonth: 9,
+
     restAfterAke: true,
     maxNightShiftsPerMonth: 8,
     preferMixedGenderNightShift: true,
