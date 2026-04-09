@@ -30,7 +30,6 @@ export function useShiftPatterns() {
   const addPattern = async (data: ShiftPatternFormData): Promise<boolean> => {
     try {
       console.log('➕ 勤務パターンを追加中...', data);
-
       const currentPatterns = await db.shiftPatterns.toArray();
 
       const newPattern: Omit<ShiftPattern, 'id'> = {
@@ -65,7 +64,6 @@ export function useShiftPatterns() {
   ): Promise<boolean> => {
     try {
       console.log('✏️ 勤務パターンを更新中...', id, data);
-
       await db.shiftPatterns.update(id, {
         ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.shortName !== undefined ? { shortName: data.shortName } : {}),
@@ -83,7 +81,6 @@ export function useShiftPatterns() {
         ...(data.isWorkday !== undefined ? { isWorkday: data.isWorkday } : {}),
         updatedAt: new Date(),
       });
-
       console.log('✅ 更新成功:', id);
       await loadPatterns();
       return true;
