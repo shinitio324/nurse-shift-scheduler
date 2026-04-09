@@ -335,14 +335,77 @@ async function fetchStaff(): Promise<Staff[]> {
   }
 }
 
-async function fetchRequests(): Promise<ShiftRequest[]> {
+async function fetchRequests(patterns: ShiftPattern[]): Promise<ShiftRequest[]> {
   try {
-    const tbl = (db as any).shiftRequests;
-    if (!tbl || typeof tbl.toArray !== 'function') return [];
-    const raw = safeArray<ShiftRequest>(await tbl.toArray());
-    return raw.filter(isActiveRequest);
+    const patternById = new Map<string, ShiftPattern>();
+    const patternByName = new Map<string, ShiftPattern>();
+
+    for (const pattern of patterns) {
+      if (!pattern) continue;
+      if (pattern.id != null) {
+        patternById.set(String(pattern.id), pattern);
+      }
+      patternByName.set(String(pattern.name ?? ''), pattern);
+    }
+
+    const requestTable = (db as any).shiftRequests;
+    const legacyTable = (db as any).shifts;
+
+    const requestRows =
+      requestTable && typeof requestTable.toArray === 'function'
+        ? safeArray<any>(await requestTable.toArray())
+        : [];
+
+    const legacyRows =
+      legacyTable && typeof legacyTable.toArray === 'function'
+        ? safeArray<any>(await legacyTable.toArray())
+        : [];
+
+    const normalizedFromRequests: ShiftRequest[] = requestRows.map((row) => {
+      const patternId = toNumericId(row?.patternId) ?? row?.patternId ?? undefined;
+      const pattern = patternId != null ? patternById.get(String(patternId)) : undefined;
+      return {
+        ...(row as ShiftRequest),
+        staffId: row?.staffId,
+        date: String(row?.date ?? ''),
+        shiftType: String(row?.shiftType ?? pattern?.name ?? ''),
+        patternId,
+        status: (row?.status ?? 'pending') as ShiftRequest['status'],
+        requestedAt: row?.requestedAt ?? row?.createdAt ?? new Date(),
+      };
+    });
+
+    const normalizedFromLegacy: ShiftRequest[] = legacyRows.map((row) => {
+      const shiftType = String(row?.shiftType ?? '');
+      const pattern = patternByName.get(shiftType);
+      return {
+        ...(row as any),
+        staffId: row?.staffId,
+        date: String(row?.date ?? ''),
+        shiftType,
+        patternId: toNumericId(pattern?.id) ?? pattern?.id ?? undefined,
+        status: 'pending' as const,
+        requestedAt: row?.createdAt ?? new Date(),
+      } as ShiftRequest;
+    });
+
+    const merged = [...normalizedFromRequests, ...normalizedFromLegacy]
+      .filter(isActiveRequest)
+      .filter((req) => req.staffId != null && String(req.date ?? '').length > 0);
+
+    const deduped: ShiftRequest[] = [];
+    const seen = new Set<string>();
+
+    for (const req of merged) {
+      const key = `${idKey(req.staffId)}__${String(req.date)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(req);
+    }
+
+    return deduped;
   } catch (e) {
-    console.error('[DB] shiftRequests 取得失敗:', e);
+    console.error('[DB] shiftRequests / shifts 取得失敗:', e);
     return [];
   }
 }
@@ -352,7 +415,8 @@ async function fetchConstraints(): Promise<ScheduleConstraints> {
     maxConsecutiveWorkDays: 5,
     minRestDaysBetweenNights: 1,
     minWorkDaysPerMonth: 20,
-    exactRestDaysPerMonth: 8,
+    minRestDaysPerMonth: 9,
+    exactRestDaysPerMonth: 9,
     restAfterAke: true,
     maxNightShiftsPerMonth: 8,
     preferMixedGenderNightShift: true,
@@ -420,12 +484,12 @@ export class ScheduleGenerator {
     try {
       await ensurePatternsInDB();
 
-      const [patterns, staff, requests, constraints] = await Promise.all([
+      const [patterns, staff, constraints] = await Promise.all([
         fetchPatterns(),
         fetchStaff(),
-        fetchRequests(),
         fetchConstraints(),
       ]);
+      const requests = await fetchRequests(patterns);
 
       const nightPat =
         patterns.find((p) => p?.isNight === true || p?.name === '夜勤') ?? null;
@@ -466,21 +530,22 @@ export class ScheduleGenerator {
 
       const schedule: GeneratedShift[] = [];
 
-      // Pass1: 有給希望を先に確定
-      if (this.vacationPatternId !== null) {
+      // Pass1: 有給希望・休み希望を先に確定
+      const fixedRequestPatternIds = new Set<number>();
+      if (this.vacationPatternId !== null) fixedRequestPatternIds.add(this.vacationPatternId);
+      if (this.restPatternId !== null) fixedRequestPatternIds.add(this.restPatternId);
+
+      if (fixedRequestPatternIds.size > 0) {
         for (const req of requests) {
           if (!req) continue;
           if (!dates.includes(req.date)) continue;
-          if (!sameId(req.patternId, this.vacationPatternId)) continue;
+
+          const reqPatternId = toNumericId(req.patternId);
+          if (reqPatternId === null) continue;
+          if (!fixedRequestPatternIds.has(reqPatternId)) continue;
           if (this.hasEntry(schedule, req.staffId, req.date)) continue;
 
-          this.pushEntry(
-            schedule,
-            req.staffId,
-            req.date,
-            this.vacationPatternId,
-            true
-          );
+          this.pushEntry(schedule, req.staffId, req.date, reqPatternId, true);
         }
       }
 
@@ -595,6 +660,13 @@ export class ScheduleGenerator {
     }
 
     return normalDayRequired;
+  }
+
+  private getMinRestDays(constraints: ScheduleConstraints): number {
+    return safeNumber(
+      constraints.minRestDaysPerMonth ?? constraints.exactRestDaysPerMonth,
+      9
+    );
   }
 
   // ─────────────────────────────────────────────────────────
@@ -932,7 +1004,7 @@ export class ScheduleGenerator {
   ): void {
     if (this.restPatternId === null) return;
 
-    const targetRest = safeNumber(constraints.exactRestDaysPerMonth, 0);
+    const targetRest = this.getMinRestDays(constraints);
     const maxConsecutive = safeNumber(constraints.maxConsecutiveWorkDays, 0);
     const totalDays = getDaysInMonth(this.year, this.month);
     const dayOfMonth = parseDateString(dateStr).getDate();
@@ -1165,7 +1237,7 @@ export class ScheduleGenerator {
   ): void {
     if (this.restPatternId === null) return;
 
-    const target = safeNumber(constraints.exactRestDaysPerMonth, 0);
+    const target = this.getMinRestDays(constraints);
     if (target <= 0) return;
 
     for (const member of staff) {
@@ -1173,16 +1245,16 @@ export class ScheduleGenerator {
 
       const mid = member.id;
 
-      let mine = schedule
+      const mine = schedule
         .filter((s) => sameId(s?.staffId, mid))
         .sort((a, b) => a.date.localeCompare(b.date));
 
-      let restEntries = mine.filter((s) =>
+      const restEntries = mine.filter((s) =>
         sameId(s?.patternId, this.restPatternId)
       );
-      let restCount = restEntries.length;
+      const restCount = restEntries.length;
 
-      // 休みが足りない → 日勤などから休みに変換
+      // 最低休み日数に足りない場合のみ、日勤などから休みに変換
       if (restCount < target) {
         const need = target - restCount;
 
@@ -1215,36 +1287,6 @@ export class ScheduleGenerator {
             schedule[idx] = {
               ...schedule[idx],
               patternId: this.restPatternId,
-            };
-          }
-        }
-      }
-
-      mine = schedule
-        .filter((s) => sameId(s?.staffId, mid))
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-      restEntries = mine.filter((s) => sameId(s?.patternId, this.restPatternId));
-      restCount = restEntries.length;
-
-      // 休みが多すぎる → 休みから日勤へ戻す
-      if (restCount > target && this.dayPatternId !== null) {
-        const over = restCount - target;
-
-        const removable = restEntries
-          .filter((s) => {
-            if (s.isManual) return false;
-            if (this.isProtectedRestAfterAke(schedule, mid, s.date)) return false;
-            return this.canConvertRestToDaySafely(schedule, s.date, patterns, constraints);
-          })
-          .sort((a, b) => a.date.localeCompare(b.date));
-
-        for (let i = 0; i < over && i < removable.length; i++) {
-          const idx = schedule.indexOf(removable[i]);
-          if (idx >= 0) {
-            schedule[idx] = {
-              ...schedule[idx],
-              patternId: this.dayPatternId,
             };
           }
         }
@@ -1294,7 +1336,7 @@ export class ScheduleGenerator {
   ): void {
     if (this.restPatternId === null) return;
 
-    const target = safeNumber(constraints.exactRestDaysPerMonth, 0);
+    const target = this.getMinRestDays(constraints);
     if (target <= 0) return;
 
     for (const member of staff) {
@@ -1306,9 +1348,9 @@ export class ScheduleGenerator {
           sameId(s?.patternId, this.restPatternId)
       ).length;
 
-      if (restCount !== target) {
+      if (restCount < target) {
         warnings.push(
-          `${member.name ?? 'スタッフ'}: 休み日数 ${restCount}日（規定 ${target}日）`
+          `${member.name ?? 'スタッフ'}: 休み日数 ${restCount}日（最低 ${target}日未満）`
         );
       }
     }
