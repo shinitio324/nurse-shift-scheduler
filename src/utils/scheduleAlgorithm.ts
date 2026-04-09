@@ -1223,11 +1223,9 @@ export class ScheduleGenerator {
     patterns: ShiftPattern[],
     constraints: ScheduleConstraints
   ): boolean {
-    const dayPattern =
-      patterns.find((p) => sameId(p?.id, this.dayPatternId)) ?? null;
-    const required = this.getRequiredDayStaffCount(dateStr, dayPattern, constraints);
-    const current = this.countDayLikeEntriesOnDate(schedule, dateStr, patterns);
-    return current < required;
+    // 公休超過を解消するため、休み→日勤への変換は許可する
+    // （日勤必要人数は最低人数として扱い、超過自体は不正とはしない）
+    return this.dayPatternId !== null;
   }
 
   private isProtectedRestAfterAke(
@@ -1461,12 +1459,6 @@ export class ScheduleGenerator {
       if (current < required) {
         warnings.push(
           `${dateStr}: 日勤人数不足 ${current}/${required}`
-        );
-      }
-
-      if (current > required) {
-        warnings.push(
-          `${dateStr}: 日勤人数超過 ${current}/${required}`
         );
       }
     }
