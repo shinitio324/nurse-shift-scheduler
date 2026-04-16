@@ -79,7 +79,10 @@ export class NurseSchedulerDB extends Dexie {
       generatedSchedules: '++id, staffId, date, patternId',
     });
 
-    // v7: canWorkNightShift を追加（日勤専従対応）
+    // v7:
+    // - gender を夜勤男女ペア判定で使用
+    // - canWorkNightShift を日勤専従判定で使用
+    // - maxNightShiftsPerMonth を個別夜勤上限で使用
     this.version(7).stores({
       staff: 'id, name, position, employmentType, gender, canWorkNightShift, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
       shifts: 'id, staffId, date, shiftType, createdAt',
@@ -94,7 +97,18 @@ export class NurseSchedulerDB extends Dexie {
 
 export const db = new NurseSchedulerDB();
 
-// ── デフォルトパターン ───────────────────────────────────────
+// ── デフォルト勤務パターン ───────────────────────────────────
+//
+// scheduleAlgorithm.ts と完全整合させるため、以下の5パターンを前提にする
+// - 日勤
+// - 夜勤
+// - 明け
+// - 有給
+// - 休み
+//
+// 重要:
+// - 「休み」だけが公休カウント対象
+// - 「有給」「明け」は公休数に含めない
 export const DEFAULT_PATTERNS = [
   {
     name: '日勤',
@@ -164,24 +178,48 @@ export const DEFAULT_PATTERNS = [
 ] as const;
 
 // ── 制約デフォルト ───────────────────────────────────────────
+//
+// scheduleAlgorithm.ts が実際に参照する制約だけを定義する。
+//
+// 優先順位の考え方:
+// 1. 夜勤回数上限（個別 / 全体）
+// 2. 連続勤務上限
+// 3. そのうえで男女ペア夜勤は最終タイブレーク
+//
 // 重要:
-// - 月別公休日数は scheduleAlgorithm.ts 側の
-//   getRequiredRestDaysForMonth() で固定管理する
-// - そのため minRestDaysPerMonth / exactRestDaysPerMonth は
-//   互換維持用として残す（旧UI/旧データとの整合用）
-// - 実際の公休判定は「休み」パターンのみを対象とし、有休・明けは含めない
+// - minRestDaysPerMonth / exactRestDaysPerMonth は DB 互換維持用として残す
+// - 実際の月別公休日数は scheduleAlgorithm.ts 側の
+//   getRequiredRestDaysForMonth() に固定実装する
+// - 公休として数えるのは「休み」パターンのみ
+// - 「有給」「明け」は公休数に含めない
 export const DEFAULT_CONSTRAINTS: Omit<ScheduleConstraints, 'id'> = {
+  // 最大連続勤務日数
   maxConsecutiveWorkDays: 5,
+
+  // 夜勤から次の夜勤まで最低何日あけるか
   minRestDaysBetweenNights: 1,
+
+  // 最低勤務日数（個別 minWorkDaysPerMonth があればそちらを優先）
   minWorkDaysPerMonth: 20,
 
-  // 互換維持用: 生成本体は scheduleAlgorithm.ts の月別固定値を使用
+  // 互換維持用:
+  // 公休の本体判定は scheduleAlgorithm.ts 側の月別固定値を使用
   minRestDaysPerMonth: 9,
   exactRestDaysPerMonth: 9,
 
+  // 明け翌日を自動で休みにする
   restAfterAke: true,
+
+  // 全体夜勤上限（個別 maxNightShiftsPerMonth があればそちらを優先）
   maxNightShiftsPerMonth: 8,
+
+  // 男女ペア夜勤の希望
+  // ただし scheduleAlgorithm.ts 側では
+  // 夜勤回数上限・連続勤務上限を優先し、
+  // この項目は最終タイブレーク扱い
   preferMixedGenderNightShift: true,
+
+  // 日曜・祝日の日勤必要人数
   sunHolidayDayStaffRequired: 3,
 };
 
@@ -199,6 +237,9 @@ export async function ensureDefaultPatterns(): Promise<void> {
         if (
           old &&
           (
+            old.startTime === undefined ||
+            old.endTime === undefined ||
+            old.color === undefined ||
             old.isNight === undefined ||
             old.isAke === undefined ||
             old.isVacation === undefined ||
@@ -265,7 +306,8 @@ export async function ensureDefaultPatterns(): Promise<void> {
                 : latest.minWorkDaysPerMonth,
 
             // 互換維持用:
-            // 実際の月別公休数は scheduleAlgorithm.ts 側で固定管理
+            // 実際の公休日数は scheduleAlgorithm.ts 側の
+            // getRequiredRestDaysForMonth() を使う
             minRestDaysPerMonth:
               latest.minRestDaysPerMonth === undefined
                 ? (
