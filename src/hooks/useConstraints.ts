@@ -20,12 +20,14 @@ function safeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
+
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
+
   return fallback;
 }
 
@@ -40,12 +42,14 @@ function toNumericId(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
+
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
+
   return undefined;
 }
 
@@ -63,19 +67,28 @@ function sortConstraints(list: ScheduleConstraints[]): ScheduleConstraints[] {
   });
 }
 
-function normalizeConstraintsRow(
+function normalizeConstraintRow(
   row: Partial<ScheduleConstraints> | null | undefined
 ): ScheduleConstraints {
+  const minRestDaysPerMonth =
+    row?.minRestDaysPerMonth !== undefined
+      ? safeNumber(row.minRestDaysPerMonth, 9)
+      : row?.exactRestDaysPerMonth !== undefined
+        ? safeNumber(row.exactRestDaysPerMonth, 9)
+        : 9;
+
+  const exactRestDaysPerMonth =
+    row?.exactRestDaysPerMonth !== undefined
+      ? safeNumber(row.exactRestDaysPerMonth, minRestDaysPerMonth)
+      : minRestDaysPerMonth;
+
   return {
     id: toNumericId(row?.id),
     maxConsecutiveWorkDays: safeNumber(row?.maxConsecutiveWorkDays, 5),
     minRestDaysBetweenNights: safeNumber(row?.minRestDaysBetweenNights, 1),
     minWorkDaysPerMonth: safeNumber(row?.minWorkDaysPerMonth, 20),
-    minRestDaysPerMonth: safeNumber(row?.minRestDaysPerMonth, 9),
-    exactRestDaysPerMonth:
-      row?.exactRestDaysPerMonth !== undefined
-        ? safeNumber(row.exactRestDaysPerMonth, 9)
-        : safeNumber(row?.minRestDaysPerMonth, 9),
+    minRestDaysPerMonth,
+    exactRestDaysPerMonth,
     restAfterAke: safeBoolean(row?.restAfterAke, true),
     maxNightShiftsPerMonth: safeNumber(row?.maxNightShiftsPerMonth, 8),
     preferMixedGenderNightShift: safeBoolean(row?.preferMixedGenderNightShift, true),
@@ -136,10 +149,10 @@ function normalizeFormData(
 }
 
 function buildConstraintRecord(
-  data: ConstraintsFormData,
+  formData: ConstraintsFormData,
   id?: number
 ): ScheduleConstraints {
-  const normalized = normalizeFormData(data);
+  const normalized = normalizeFormData(formData);
   const now = new Date();
 
   const minRestDaysPerMonth =
@@ -177,10 +190,10 @@ function buildConstraintRecord(
   };
 }
 
-function convertLegacyConstraint(
+function convertLegacyConstraintRow(
   row: LegacyScheduleConstraintRow
 ): ScheduleConstraints {
-  return normalizeConstraintsRow({
+  return normalizeConstraintRow({
     id: toNumericId(row.id),
     name: safeString(row.name) || '旧制約',
     isActive:
@@ -214,19 +227,23 @@ export function useConstraints() {
 
       await initializeDatabase();
 
-      const [constraintRows, legacyRows] = await Promise.all([
-        db.constraints.toArray().catch(() => []),
-        db.scheduleConstraints?.toArray?.().catch?.(() => []) ?? Promise.resolve([]),
-      ]);
+      const constraintRows = await db.constraints.toArray().catch(() => []);
+
+      let legacyRows: LegacyScheduleConstraintRow[] = [];
+      try {
+        if (db.scheduleConstraints && typeof db.scheduleConstraints.toArray === 'function') {
+          legacyRows = (await db.scheduleConstraints.toArray()) as LegacyScheduleConstraintRow[];
+        }
+      } catch (error) {
+        console.warn('⚠️ 旧 scheduleConstraints の読み込みに失敗しました:', error);
+      }
 
       let normalized = (constraintRows as ScheduleConstraints[]).map((row) =>
-        normalizeConstraintsRow(row)
+        normalizeConstraintRow(row)
       );
 
-      if (normalized.length === 0 && Array.isArray(legacyRows) && legacyRows.length > 0) {
-        normalized = (legacyRows as LegacyScheduleConstraintRow[]).map((row) =>
-          convertLegacyConstraint(row)
-        );
+      if (normalized.length === 0 && legacyRows.length > 0) {
+        normalized = legacyRows.map((row) => convertLegacyConstraintRow(row));
       }
 
       setConstraints(sortConstraints(normalized));
@@ -245,15 +262,16 @@ export function useConstraints() {
   const addConstraints = useCallback(
     async (formData: ConstraintsFormData): Promise<boolean> => {
       try {
-        const currentRows = await db.constraints.toArray().catch(() => []);
+        const existingRows = await db.constraints.toArray().catch(() => []);
+
         const nextPriority =
-          currentRows.length > 0
-            ? Math.max(...currentRows.map((row) => safeNumber(row.priority, 1))) + 1
+          existingRows.length > 0
+            ? Math.max(...existingRows.map((row) => safeNumber(row.priority, 1))) + 1
             : 1;
 
         const record = buildConstraintRecord(formData);
         record.priority = nextPriority;
-        record.name = currentRows.length === 0 ? '標準制約' : `制約 ${nextPriority}`;
+        record.name = existingRows.length === 0 ? '標準制約' : `制約 ${nextPriority}`;
         record.isActive = true;
 
         await db.constraints.add(record as ScheduleConstraints);
@@ -280,7 +298,7 @@ export function useConstraints() {
           return false;
         }
 
-        const normalizedExisting = normalizeConstraintsRow(existing);
+        const normalizedExisting = normalizeConstraintRow(existing);
         const normalizedPatch = normalizeFormData(formData);
 
         const nextMinRestDaysPerMonth =
@@ -319,15 +337,15 @@ export function useConstraints() {
   const deleteConstraints = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        const rows = await db.constraints.toArray().catch(() => []);
-        const existing = rows.find((row) => row.id === id);
+        const existingRows = await db.constraints.toArray().catch(() => []);
+        const existing = existingRows.find((row) => row.id === id);
 
         if (!existing) {
           console.warn('⚠️ 削除対象の制約条件が見つかりません:', id);
           return false;
         }
 
-        if (rows.length <= 1) {
+        if (existingRows.length <= 1) {
           console.warn('⚠️ 制約条件は最低1件必要なため削除できません');
           return false;
         }
@@ -344,7 +362,7 @@ export function useConstraints() {
   );
 
   const getConstraintById = useCallback(
-    (id: number | undefined | null): ScheduleConstraints | undefined => {
+    (id: number | null | undefined): ScheduleConstraints | undefined => {
       if (id == null) return undefined;
       return constraints.find((row) => row.id === id);
     },
