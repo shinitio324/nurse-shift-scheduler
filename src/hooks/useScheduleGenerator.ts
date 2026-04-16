@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { db, initializeDatabase } from '../db/index';
 import { ScheduleGenerator } from '../utils/scheduleAlgorithm';
+import { normalizeDateString } from '../utils/dateUtils';
 import type {
   GeneratedShift,
   ScheduleGenerationParams,
@@ -21,27 +22,6 @@ function safeNumber(value: unknown, fallback: number): number {
   }
 
   return fallback;
-}
-
-function normalizeDateString(value: unknown): string {
-  if (typeof value !== 'string') return '';
-
-  const raw = value.trim();
-  if (!raw) return '';
-
-  const directMatch = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (directMatch) {
-    const [, y, m, d] = directMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return raw;
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function getMonthPrefix(year: number, month: number): string {
@@ -350,6 +330,8 @@ export function useScheduleGenerator() {
           e instanceof Error
             ? e.message
             : '保存済みスケジュールの読み込みに失敗しました';
+
+        console.error('❌ 保存済みスケジュールの読み込みに失敗しました:', e);
         setError(message);
 
         const empty = makeEmptyResult();
