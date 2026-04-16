@@ -415,11 +415,8 @@ async function fetchConstraints(): Promise<ScheduleConstraints> {
     maxConsecutiveWorkDays: 5,
     minRestDaysBetweenNights: 1,
     minWorkDaysPerMonth: 20,
-
-    // DB互換用として残すが、公休数の本体判定には使用しない
     minRestDaysPerMonth: 9,
     exactRestDaysPerMonth: 9,
-
     restAfterAke: true,
     maxNightShiftsPerMonth: 8,
     preferMixedGenderNightShift: true,
@@ -576,6 +573,8 @@ export class ScheduleGenerator {
             schedule,
             staff,
             requests,
+            patterns,
+            constraints,
             nightRequired,
             minRestBetweenNights,
             globalMaxNightShiftsPerMonth,
@@ -816,6 +815,8 @@ export class ScheduleGenerator {
     schedule: GeneratedShift[],
     staff: Staff[],
     requests: ShiftRequest[],
+    patterns: ShiftPattern[],
+    constraints: ScheduleConstraints,
     required: number,
     minRestBetweenNights: number,
     globalMaxNightShiftsPerMonth: number,
@@ -844,6 +845,8 @@ export class ScheduleGenerator {
         )
         .map((r) => idKey(r.staffId))
     );
+
+    const maxConsecutive = safeNumber(constraints.maxConsecutiveWorkDays, 0);
 
     const candidates = staff.filter((m) => {
       if (m?.id == null) return false;
@@ -878,10 +881,24 @@ export class ScheduleGenerator {
 
       if (currentNightCount >= effectiveMax) return false;
 
+      if (maxConsecutive > 0) {
+        const consecutiveWork = this.getConsecutiveWorkDaysBefore(
+          dateStr,
+          m.id,
+          schedule,
+          patterns
+        );
+        if (consecutiveWork >= maxConsecutive) return false;
+      }
+
       return true;
     });
 
-    const sortBase = (list: Staff[]): Staff[] => {
+    const sortBase = (list: Staff[], alreadySelected: Staff[]): Staff[] => {
+      const selectedGenders = new Set(
+        alreadySelected.map((s) => normalizeGender(s.gender))
+      );
+
       return [...list].sort((a, b) => {
         const aKey = idKey(a.id);
         const bKey = idKey(b.id);
@@ -894,6 +911,47 @@ export class ScheduleGenerator {
         const bNight = this.nightCount.get(bKey) ?? 0;
         if (aNight !== bNight) return aNight - bNight;
 
+        const aConsecutive = this.getConsecutiveWorkDaysBefore(
+          dateStr,
+          a.id,
+          schedule,
+          patterns
+        );
+        const bConsecutive = this.getConsecutiveWorkDaysBefore(
+          dateStr,
+          b.id,
+          schedule,
+          patterns
+        );
+        if (aConsecutive !== bConsecutive) return aConsecutive - bConsecutive;
+
+        if (
+          preferMixedGenderNightShift &&
+          required >= 2 &&
+          alreadySelected.length > 0 &&
+          selectedGenders.size === 1
+        ) {
+          const onlyGender = Array.from(selectedGenders)[0];
+          if (onlyGender === '男性' || onlyGender === '女性') {
+            const aGender = normalizeGender(a.gender);
+            const bGender = normalizeGender(b.gender);
+
+            const aMixed =
+              (onlyGender === '男性' && aGender === '女性') ||
+              (onlyGender === '女性' && aGender === '男性')
+                ? 0
+                : 1;
+
+            const bMixed =
+              (onlyGender === '男性' && bGender === '女性') ||
+              (onlyGender === '女性' && bGender === '男性')
+                ? 0
+                : 1;
+
+            if (aMixed !== bMixed) return aMixed - bMixed;
+          }
+        }
+
         return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ja');
       });
     };
@@ -903,37 +961,12 @@ export class ScheduleGenerator {
 
     while (selected.length < required) {
       const remaining = sortBase(
-        candidates.filter((c) => !selectedKeys.has(idKey(c.id)))
+        candidates.filter((c) => !selectedKeys.has(idKey(c.id))),
+        selected
       );
       if (remaining.length === 0) break;
 
-      let chosen: Staff | undefined;
-
-      if (preferMixedGenderNightShift && required >= 2 && selected.length > 0) {
-        const selectedGenders = new Set(
-          selected.map((s) => normalizeGender(s.gender))
-        );
-
-        if (selectedGenders.size === 1) {
-          const onlyGender = Array.from(selectedGenders)[0];
-          if (onlyGender === '男性' || onlyGender === '女性') {
-            const targetGender: StaffGender =
-              onlyGender === '男性' ? '女性' : '男性';
-
-            const mixedCandidates = remaining.filter(
-              (c) => normalizeGender(c.gender) === targetGender
-            );
-
-            if (mixedCandidates.length > 0) {
-              chosen = mixedCandidates[0];
-            }
-          }
-        }
-      }
-
-      if (!chosen) {
-        chosen = remaining[0];
-      }
+      const chosen = remaining[0];
       if (!chosen) break;
 
       selected.push(chosen);
