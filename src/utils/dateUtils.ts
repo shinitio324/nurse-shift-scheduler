@@ -38,6 +38,10 @@ export function parseDateString(value: string): Date {
   return new Date(Number(y), Number(m) - 1, Number(d));
 }
 
+export function parseLocalDate(value: string): Date {
+  return parseDateString(value);
+}
+
 export function formatDate(date: Date): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
     return '';
@@ -131,4 +135,15 @@ export function getYearMonth(
     year: Number(match[1]),
     month: Number(match[2]),
   };
+}
+
+export function getWeekdayLabel(value: string): string {
+  const date = parseLocalDate(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const labels = ['日', '月', '火', '水', '木', '金', '土'];
+  return labels[date.getDay()] ?? '';
 }
