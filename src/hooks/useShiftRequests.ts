@@ -176,7 +176,7 @@ export function useShiftRequests() {
             staffName:
               safeString(row.staffName) ||
               safeString(staffMap.get(normalizedStaffId)?.name) ||
-              '不明なスタッフ',
+              '',
             status: row.status ?? 'pending',
             requestedAt: row.requestedAt ?? row.createdAt ?? new Date(),
           };
@@ -200,7 +200,7 @@ export function useShiftRequests() {
           staffName:
             safeString(row.staffName) ||
             safeString(staffMap.get(normalizedStaffId)?.name) ||
-            '不明なスタッフ',
+            '',
           status: 'pending',
           note: row.note,
           requestedAt: row.createdAt ?? new Date(),
@@ -236,7 +236,7 @@ export function useShiftRequests() {
 
       setShiftRequests(merged);
     } catch (error) {
-      console.error('❌ シフト希望の読み込みに失敗しました:', error);
+      console.error(' :', error);
       setShiftRequests([]);
     } finally {
       setLoading(false);
@@ -254,7 +254,7 @@ export function useShiftRequests() {
         const normalizedDate = normalizeDateString(data.date);
 
         if (!normalizedStaffId || !normalizedDate) {
-          console.warn('⚠️ staffId または date が不正です');
+          console.warn(' staffId  date ');
           return false;
         }
 
@@ -278,7 +278,7 @@ export function useShiftRequests() {
         ];
 
         if (isDuplicateRequest(allForDuplicateCheck, normalizedStaffId, normalizedDate)) {
-          console.warn('⚠️ 同一スタッフ・同一日の希望はすでに存在します');
+          console.warn(' ');
           return false;
         }
 
@@ -287,7 +287,7 @@ export function useShiftRequests() {
           safeString(data.shiftType) || safeString(pattern?.name);
 
         if (!normalizedShiftType) {
-          console.warn('⚠️ shiftType または patternId が不正です');
+          console.warn(' shiftType  patternId ');
           return false;
         }
 
@@ -308,7 +308,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ シフト希望の追加に失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
@@ -323,7 +323,7 @@ export function useShiftRequests() {
       try {
         const decoded = decodeId(id);
         if (!decoded) {
-          console.warn('⚠️ 不正なIDです:', id);
+          console.warn(' ID:', id);
           return false;
         }
 
@@ -343,7 +343,7 @@ export function useShiftRequests() {
             (row) => row.id === rawNumericId
           );
           if (!current) {
-            console.warn('⚠️ 更新対象の shiftRequests 行が見つかりません:', decoded.rawId);
+            console.warn('  shiftRequests :', decoded.rawId);
             return false;
           }
 
@@ -358,7 +358,7 @@ export function useShiftRequests() {
               : normalizeDateString(current.date);
 
           if (!nextStaffId || !nextDate) {
-            console.warn('⚠️ 更新後の staffId または date が不正です');
+            console.warn('  staffId  date ');
             return false;
           }
 
@@ -386,7 +386,7 @@ export function useShiftRequests() {
           );
 
           if (duplicateExists) {
-            console.warn('⚠️ 更新後に同一スタッフ・同一日の重複が発生します');
+            console.warn(' ');
             return false;
           }
 
@@ -418,7 +418,7 @@ export function useShiftRequests() {
         } else {
           const current = await db.shifts.get(decoded.rawId as any);
           if (!current) {
-            console.warn('⚠️ 更新対象の legacy shifts 行が見つかりません:', decoded.rawId);
+            console.warn('  legacy shifts :', decoded.rawId);
             return false;
           }
 
@@ -433,7 +433,7 @@ export function useShiftRequests() {
               : normalizeDateString(current.date);
 
           if (!nextStaffId || !nextDate) {
-            console.warn('⚠️ 更新後の staffId または date が不正です');
+            console.warn('  staffId  date ');
             return false;
           }
 
@@ -461,7 +461,7 @@ export function useShiftRequests() {
           );
 
           if (duplicateExists) {
-            console.warn('⚠️ 更新後に同一スタッフ・同一日の重複が発生します');
+            console.warn(' ');
             return false;
           }
 
@@ -491,7 +491,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ シフト希望の更新に失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
@@ -503,7 +503,7 @@ export function useShiftRequests() {
       try {
         const decoded = decodeId(id);
         if (!decoded) {
-          console.warn('⚠️ 不正なIDです:', id);
+          console.warn(' ID:', id);
           return false;
         }
 
@@ -518,7 +518,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ シフト希望の削除に失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
@@ -576,8 +576,8 @@ export function useShiftRequests() {
       const byStaff: Record<string, number> = {};
 
       for (const request of monthRequests) {
-        const shiftType = safeString(request.shiftType) || '未設定';
-        const staffName = safeString(request.staffName) || '不明';
+        const shiftType = safeString(request.shiftType) || '';
+        const staffName = safeString(request.staffName) || '';
 
         byShiftType[shiftType] = (byShiftType[shiftType] ?? 0) + 1;
         byStaff[staffName] = (byStaff[staffName] ?? 0) + 1;
@@ -604,7 +604,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ シフト希望の一括追加に失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
@@ -630,7 +630,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ 期間指定削除に失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
@@ -650,7 +650,7 @@ export function useShiftRequests() {
         await loadShiftRequests();
         return true;
       } catch (error) {
-        console.error('❌ スタッフ月次希望のクリアに失敗しました:', error);
+        console.error(' :', error);
         return false;
       }
     },
