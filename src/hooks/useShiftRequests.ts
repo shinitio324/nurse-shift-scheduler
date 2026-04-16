@@ -7,6 +7,12 @@ import type {
   ShiftRequestFormData,
   Staff,
 } from '../types';
+import {
+  compareDateStrings,
+  getMonthEndDateString,
+  getMonthStartDateString,
+  normalizeDateString,
+} from '../utils/dateUtils';
 
 type RequestSource = 'shiftRequests' | 'shifts';
 
@@ -24,44 +30,6 @@ type MonthlyStats = {
 
 function safeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeDateString(value: unknown): string {
-  const raw = safeString(value);
-
-  if (!raw) return '';
-
-  const directMatch = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (directMatch) {
-    const [, y, m, d] = directMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) {
-    return raw;
-  }
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function compareDateStrings(a: string, b: string): number {
-  const aa = normalizeDateString(a);
-  const bb = normalizeDateString(b);
-  if (aa === bb) return 0;
-  return aa < bb ? -1 : 1;
-}
-
-function getMonthStartDateString(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-01`;
-}
-
-function getMonthEndDateString(year: number, month: number): string {
-  const lastDay = new Date(year, month, 0).getDate();
-  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
 function normalizeStaffId(value: unknown): string {
@@ -156,23 +124,14 @@ function findPatternByFormData(
 function isDuplicateRequest(
   requests: Array<Pick<ShiftRequest, 'staffId' | 'date'>>,
   staffId: string,
-  date: string,
-  excludeKey?: string
+  date: string
 ): boolean {
-  return requests.some((request, index) => {
-    const key = `${normalizeStaffId(request.staffId)}__${normalizeDateString(request.date)}__${index}`;
-    if (excludeKey && key === excludeKey) {
-      return false;
-    }
+  return requests.some((request) => {
     return (
       normalizeStaffId(request.staffId) === staffId &&
       normalizeDateString(request.date) === date
     );
   });
-}
-
-function makeRequestIdentityKey(request: Pick<ShiftRequest, 'staffId' | 'date'>, index: number): string {
-  return `${normalizeStaffId(request.staffId)}__${normalizeDateString(request.date)}__${index}`;
 }
 
 export function useShiftRequests() {
@@ -265,8 +224,13 @@ export function useShiftRequests() {
       merged.sort((a, b) => {
         const dateCompare = compareDateStrings(a.date, b.date);
         if (dateCompare !== 0) return dateCompare;
-        const staffCompare = safeString(a.staffName).localeCompare(safeString(b.staffName), 'ja');
+
+        const staffCompare = safeString(a.staffName).localeCompare(
+          safeString(b.staffName),
+          'ja'
+        );
         if (staffCompare !== 0) return staffCompare;
+
         return safeString(a.shiftType).localeCompare(safeString(b.shiftType), 'ja');
       });
 
@@ -375,7 +339,9 @@ export function useShiftRequests() {
           const rawNumericId = toNumericId(decoded.rawId);
           if (rawNumericId == null) return false;
 
-          const current = (requestRows as ShiftRequest[]).find((row) => row.id === rawNumericId);
+          const current = (requestRows as ShiftRequest[]).find(
+            (row) => row.id === rawNumericId
+          );
           if (!current) {
             console.warn('⚠️ 更新対象の shiftRequests 行が見つかりません:', decoded.rawId);
             return false;
@@ -396,36 +362,28 @@ export function useShiftRequests() {
             return false;
           }
 
-          const allForDuplicateCheck = [
-            ...(requestRows as ShiftRequest[]).map((row, index) => ({
-              request: { staffId: row.staffId, date: row.date },
-              key: makeRequestIdentityKey(
-                { staffId: row.staffId, date: row.date },
-                index
-              ),
-              id: row.id,
-              source: 'shiftRequests' as const,
-            })),
-            ...(legacyRows as Shift[]).map((row, index) => ({
-              request: { staffId: row.staffId, date: row.date },
-              key: makeRequestIdentityKey(
-                { staffId: row.staffId, date: row.date },
-                index + 100000
-              ),
-              id: row.id,
-              source: 'shifts' as const,
-            })),
-          ];
+          const requestRowsNormalized = (requestRows as ShiftRequest[]).map((row) => ({
+            source: 'shiftRequests' as const,
+            id: row.id,
+            staffId: normalizeStaffId(row.staffId),
+            date: normalizeDateString(row.date),
+          }));
 
-          const duplicateExists = allForDuplicateCheck.some((row) => {
-            if (row.source === 'shiftRequests' && row.id === rawNumericId) {
-              return false;
+          const legacyRowsNormalized = (legacyRows as Shift[]).map((row) => ({
+            source: 'shifts' as const,
+            id: row.id,
+            staffId: normalizeStaffId(row.staffId),
+            date: normalizeDateString(row.date),
+          }));
+
+          const duplicateExists = [...requestRowsNormalized, ...legacyRowsNormalized].some(
+            (row) => {
+              if (row.source === 'shiftRequests' && row.id === rawNumericId) {
+                return false;
+              }
+              return row.staffId === nextStaffId && row.date === nextDate;
             }
-            return (
-              normalizeStaffId(row.request.staffId) === nextStaffId &&
-              normalizeDateString(row.request.date) === nextDate
-            );
-          });
+          );
 
           if (duplicateExists) {
             console.warn('⚠️ 更新後に同一スタッフ・同一日の重複が発生します');
