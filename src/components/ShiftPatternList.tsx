@@ -11,6 +11,15 @@ type ShiftPatternListProps = {
   onDelete: (id: number) => Promise<boolean>;
 };
 
+function normalizePatternId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 export function ShiftPatternList({
   patterns,
   loading,
@@ -26,11 +35,12 @@ export function ShiftPatternList({
       let success = false;
 
       if (editingPattern) {
-        if (editingPattern.id == null) {
-          console.error('編集対象の勤務パターンIDがありません');
+        const patternId = normalizePatternId(editingPattern.id);
+        if (patternId === null) {
+          console.error('編集対象の勤務パターンIDが不正です:', editingPattern.id);
           return false;
         }
-        success = await onUpdate(editingPattern.id, data);
+        success = await onUpdate(patternId, data);
       } else {
         success = await onAdd(data);
       }
@@ -53,17 +63,31 @@ export function ShiftPatternList({
   };
 
   const handleDelete = async (pattern: ShiftPattern) => {
-    if (pattern.id == null) {
-      console.error('削除対象の勤務パターンIDがありません');
-      alert('削除対象のIDが不正です');
+    const patternId = normalizePatternId(pattern.id);
+
+    if (patternId === null) {
+      console.error('削除対象の勤務パターンIDが不正です:', pattern.id);
+      alert('削除対象の勤務パターンIDが不正です');
       return;
     }
 
-    const confirmed = window.confirm(`勤務パターン「${pattern.name}」を削除してもよろしいですか？`);
+    const confirmed = window.confirm(
+      `勤務パターン「${pattern.name}」を削除してもよろしいですか？\n\n` +
+        `※ 同名の重複がある場合は、先に安全に統合されます。`
+    );
+
     if (!confirmed) return;
 
     try {
-      await onDelete(pattern.id);
+      const success = await onDelete(patternId);
+
+      if (!success) {
+        alert(
+          '削除できませんでした。\n\n' +
+            '・必須パターン（日勤 / 夜勤 / 明け / 有給 / 休み）は1件残ります\n' +
+            '・希望シフトや生成済みシフトから参照されているパターンは削除できません'
+        );
+      }
     } catch (error) {
       console.error('削除処理で例外が発生しました:', error);
       alert('削除処理でエラーが発生しました');
@@ -88,7 +112,9 @@ export function ShiftPatternList({
     );
   }
 
-  const sortedPatterns = [...patterns].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const sortedPatterns = [...patterns].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
   const totalRequired = patterns
     .filter((p) => p.isWorkday)
     .reduce((sum, p) => sum + p.requiredStaff, 0);
@@ -100,6 +126,9 @@ export function ShiftPatternList({
         <div>
           <h3 className="text-xl font-bold text-gray-800">勤務パターン一覧</h3>
           <p className="text-sm text-gray-600 mt-1">登録済み: {patterns.length} 種類</p>
+          <p className="text-xs text-amber-600 mt-1">
+            同名の重複勤務パターンは読み込み時に自動整理されます
+          </p>
         </div>
         <button
           onClick={handleAddNew}
@@ -114,14 +143,18 @@ export function ShiftPatternList({
       {sortedPatterns.length === 0 ? (
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
           <Plus className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h4 className="text-xl font-semibold text-gray-800 mb-2">勤務パターンが登録されていません</h4>
-          <p className="text-gray-600 mb-6">「新しいパターンを追加」ボタンから勤務パターンを登録しましょう</p>
+          <h4 className="text-xl font-semibold text-gray-800 mb-2">
+            勤務パターンが登録されていません
+          </h4>
+          <p className="text-gray-600 mb-6">
+            「新しいパターンを追加」ボタンから勤務パターンを登録しましょう
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortedPatterns.map((pattern) => (
             <div
-              key={pattern.id}
+              key={String(pattern.id)}
               className="bg-white rounded-lg shadow-md p-4 border-l-4 hover:shadow-lg transition-shadow"
               style={{ borderLeftColor: pattern.color }}
             >
@@ -135,7 +168,9 @@ export function ShiftPatternList({
                   </div>
                   <div>
                     <h4 className="font-bold text-gray-800">{pattern.name}</h4>
-                    <p className="text-xs text-gray-500">{pattern.isWorkday ? '勤務' : '休暇'}</p>
+                    <p className="text-xs text-gray-500">
+                      {pattern.isWorkday ? '勤務' : '休暇'}
+                    </p>
                   </div>
                 </div>
 
@@ -173,7 +208,9 @@ export function ShiftPatternList({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">必要人数:</span>
-                    <span className="font-semibold text-indigo-600">{pattern.requiredStaff}名</span>
+                    <span className="font-semibold text-indigo-600">
+                      {pattern.requiredStaff}名
+                    </span>
                   </div>
                 </div>
               )}
