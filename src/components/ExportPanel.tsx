@@ -1,24 +1,49 @@
 import { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  Download, FileText, FileSpreadsheet, Printer,
-  CheckCircle, AlertCircle, Loader2,
+  Download,
+  FileText,
+  FileSpreadsheet,
+  Printer,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { db } from '../db';
 
-// ========================================
-// データ取得ヘルパー
-// ========================================
-async function fetchExportData(year: number, month: number) {
+type ExportSource = 'generatedSchedules' | 'shifts';
+
+interface ExportData {
+  allStaff: any[];
+  allPatterns: any[];
+  monthRows: any[];
+  days: string[];
+  patternById: Map<string, any>;
+  patternByName: Map<string, any>;
+  shiftMatrix: Map<string, Map<string, string>>;
+  source: ExportSource;
+}
+
+async function fetchExportData(year: number, month: number): Promise<ExportData> {
   const mm = String(month).padStart(2, '0');
   const startDate = `${year}-${mm}-01`;
-  const endDate   = `${year}-${mm}-31`;
+  const endDate = `${year}-${mm}-31`;
 
-  const [allStaff, allPatterns, monthShifts] = await Promise.all([
-    db.staff.toArray(),
-    db.shiftPatterns.toArray(),
-    db.shifts.where('date').between(startDate, endDate, true, true).toArray(),
-  ]);
+  const [allStaff, allPatterns, monthGeneratedSchedules, monthLegacyShifts] =
+    await Promise.all([
+      db.staff.toArray(),
+      db.shiftPatterns.toArray(),
+      db.generatedSchedules
+        .where('date')
+        .between(startDate, endDate, true, true)
+        .toArray()
+        .catch(() => []),
+      db.shifts
+        .where('date')
+        .between(startDate, endDate, true, true)
+        .toArray()
+        .catch(() => []),
+    ]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => {
@@ -26,32 +51,76 @@ async function fetchExportData(year: number, month: number) {
     return `${year}-${mm}-${d}`;
   });
 
-  const patternByName = new Map(allPatterns.map(p => [p.name, p]));
+  const patternById = new Map(allPatterns.map((p: any) => [String(p.id), p]));
+  const patternByName = new Map(allPatterns.map((p: any) => [String(p.name), p]));
 
-  // staff × date マトリクス
   const shiftMatrix = new Map<string, Map<string, string>>(
-    allStaff.map(s => [s.id, new Map()])
+    allStaff
+      .filter((s: any) => s?.id != null)
+      .map((s: any) => [String(s.id), new Map<string, string>()])
   );
-  monthShifts.forEach(shift => {
-    shiftMatrix.get(shift.staffId)?.set(shift.date, shift.shiftType);
-  });
 
-  return { allStaff, allPatterns, monthShifts, days, patternByName, shiftMatrix };
+  let monthRows: any[] = [];
+  let source: ExportSource = 'generatedSchedules';
+
+  if (Array.isArray(monthGeneratedSchedules) && monthGeneratedSchedules.length > 0) {
+    monthRows = monthGeneratedSchedules;
+    source = 'generatedSchedules';
+
+    monthGeneratedSchedules.forEach((shift: any) => {
+      const staffId = String(shift?.staffId ?? '');
+      const date = String(shift?.date ?? '');
+      const pattern = patternById.get(String(shift?.patternId ?? ''));
+      const shiftName = String(pattern?.name ?? '');
+
+      if (!staffId || !date) return;
+      if (!shiftMatrix.has(staffId)) {
+        shiftMatrix.set(staffId, new Map<string, string>());
+      }
+      shiftMatrix.get(staffId)?.set(date, shiftName);
+    });
+  } else {
+    monthRows = Array.isArray(monthLegacyShifts) ? monthLegacyShifts : [];
+    source = 'shifts';
+
+    monthLegacyShifts.forEach((shift: any) => {
+      const staffId = String(shift?.staffId ?? '');
+      const date = String(shift?.date ?? '');
+      const shiftType = String(shift?.shiftType ?? '');
+
+      if (!staffId || !date) return;
+      if (!shiftMatrix.has(staffId)) {
+        shiftMatrix.set(staffId, new Map<string, string>());
+      }
+      shiftMatrix.get(staffId)?.set(date, shiftType);
+    });
+  }
+
+  return {
+    allStaff,
+    allPatterns,
+    monthRows,
+    days,
+    patternById,
+    patternByName,
+    shiftMatrix,
+    source,
+  };
 }
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// ========================================
-// メインコンポーネント
-// ========================================
 export function ExportPanel() {
   const today = new Date();
-  const [year,      setYear]      = useState(today.getFullYear());
-  const [month,     setMonth]     = useState(today.getMonth() + 1);
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
   const [exporting, setExporting] = useState<'csv' | 'excel' | 'pdf' | null>(null);
-  const [message,   setMessage]   = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
-  const years  = Array.from({ length: 3 }, (_, i) => today.getFullYear() - 1 + i);
+  const years = Array.from({ length: 3 }, (_, i) => today.getFullYear() - 1 + i);
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
   const showMsg = (type: 'success' | 'error', text: string) => {
@@ -59,34 +128,55 @@ export function ExportPanel() {
     setTimeout(() => setMessage(null), 4000);
   };
 
-  // ── CSV エクスポート ──
   const exportCSV = useCallback(async () => {
     try {
       setExporting('csv');
-      const { allStaff, days, shiftMatrix } = await fetchExportData(year, month);
+      const { allStaff, days, shiftMatrix, monthRows, source } = await fetchExportData(
+        year,
+        month
+      );
 
-      if (allStaff.length === 0) { showMsg('error', 'スタッフが登録されていません。'); return; }
+      if (allStaff.length === 0) {
+        showMsg('error', 'スタッフが登録されていません。');
+        return;
+      }
 
-      const dayNums = days.map(d => parseInt(d.split('-')[2]));
-      const header  = ['スタッフ名', '役職', ...dayNums.map(n => `${n}日`)];
-      const rows    = allStaff.map(s => {
-        const m = shiftMatrix.get(s.id) ?? new Map();
-        return [s.name, s.position, ...days.map(d => m.get(d) ?? '')];
+      if (monthRows.length === 0) {
+        showMsg('error', '保存済み勤務表がありません。先にスケジュールを保存してください。');
+        return;
+      }
+
+      const dayNums = days.map((d) => parseInt(d.split('-')[2], 10));
+      const header = ['スタッフ名', '役職', ...dayNums.map((n) => `${n}日`)];
+
+      const rows = allStaff.map((s: any) => {
+        const staffId = String(s?.id ?? '');
+        const m = shiftMatrix.get(staffId) ?? new Map<string, string>();
+        return [s.name, s.position, ...days.map((d) => m.get(d) ?? '')];
       });
 
       const csv = [header, ...rows]
-        .map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+        .map((row) =>
+          row.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')
+        )
         .join('\n');
 
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
+      const blob = new Blob(['\uFEFF' + csv], {
+        type: 'text/csv;charset=utf-8;',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
       a.download = `勤務表_${year}年${String(month).padStart(2, '0')}月.csv`;
       a.click();
       URL.revokeObjectURL(url);
 
-      showMsg('success', 'CSVファイルをダウンロードしました ✅');
+      showMsg(
+        'success',
+        `CSVファイルをダウンロードしました ✅（参照元: ${
+          source === 'generatedSchedules' ? '保存済み生成スケジュール' : '旧シフトデータ'
+        }）`
+      );
     } catch (e) {
       console.error('CSV エクスポートエラー:', e);
       showMsg('error', 'CSV エクスポートに失敗しました。');
@@ -95,46 +185,55 @@ export function ExportPanel() {
     }
   }, [year, month]);
 
-  // ── Excel エクスポート ──
   const exportExcel = useCallback(async () => {
     try {
       setExporting('excel');
-      const { allStaff, days, patternByName, shiftMatrix } = await fetchExportData(year, month);
+      const { allStaff, days, patternByName, shiftMatrix, monthRows, source } =
+        await fetchExportData(year, month);
 
-      if (allStaff.length === 0) { showMsg('error', 'スタッフが登録されていません。'); return; }
+      if (allStaff.length === 0) {
+        showMsg('error', 'スタッフが登録されていません。');
+        return;
+      }
 
-      const dayNums = days.map(d => parseInt(d.split('-')[2]));
+      if (monthRows.length === 0) {
+        showMsg('error', '保存済み勤務表がありません。先にスケジュールを保存してください。');
+        return;
+      }
 
-      // ヘッダー行（曜日付き）
+      const dayNums = days.map((d) => parseInt(d.split('-')[2], 10));
+
       const headerRow = [
-        'スタッフ名', '役職',
-        ...dayNums.map(d => {
+        'スタッフ名',
+        '役職',
+        ...dayNums.map((d) => {
           const wd = new Date(year, month - 1, d).getDay();
           return `${d}(${WEEKDAYS[wd]})`;
         }),
       ];
 
-      // データ行（略称表示）
-      const dataRows = allStaff.map(s => {
-        const m = shiftMatrix.get(s.id) ?? new Map();
+      const dataRows = allStaff.map((s: any) => {
+        const staffId = String(s?.id ?? '');
+        const m = shiftMatrix.get(staffId) ?? new Map<string, string>();
+
         return [
-          s.name, s.position,
-          ...days.map(d => {
-            const st = m.get(d) ?? '';
-            return patternByName.get(st)?.shortName ?? st;
+          s.name,
+          s.position,
+          ...days.map((d) => {
+            const shiftName = m.get(d) ?? '';
+            return patternByName.get(shiftName)?.shortName ?? shiftName;
           }),
         ];
       });
 
       const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
 
-      // 列幅設定
       ws['!cols'] = [
-        { wch: 14 }, { wch: 9 },
+        { wch: 14 },
+        { wch: 9 },
         ...dayNums.map(() => ({ wch: 5 })),
       ];
 
-      // 行高さ設定
       ws['!rows'] = [{ hpx: 28 }, ...dataRows.map(() => ({ hpx: 22 }))];
 
       const wb = XLSX.utils.book_new();
@@ -142,7 +241,12 @@ export function ExportPanel() {
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
       XLSX.writeFile(wb, `勤務表_${year}年${String(month).padStart(2, '0')}月.xlsx`);
 
-      showMsg('success', 'Excelファイルをダウンロードしました ✅');
+      showMsg(
+        'success',
+        `Excelファイルをダウンロードしました ✅（参照元: ${
+          source === 'generatedSchedules' ? '保存済み生成スケジュール' : '旧シフトデータ'
+        }）`
+      );
     } catch (e) {
       console.error('Excel エクスポートエラー:', e);
       showMsg('error', 'Excel エクスポートに失敗しました。');
@@ -151,39 +255,59 @@ export function ExportPanel() {
     }
   }, [year, month]);
 
-  // ── PDF エクスポート（印刷ダイアログ）──
   const exportPDF = useCallback(async () => {
     try {
       setExporting('pdf');
-      const { allStaff, days, patternByName, shiftMatrix } = await fetchExportData(year, month);
+      const { allStaff, days, patternByName, shiftMatrix, monthRows, source } =
+        await fetchExportData(year, month);
 
-      if (allStaff.length === 0) { showMsg('error', 'スタッフが登録されていません。'); return; }
+      if (allStaff.length === 0) {
+        showMsg('error', 'スタッフが登録されていません。');
+        return;
+      }
 
-      const dayNums = days.map(d => parseInt(d.split('-')[2]));
+      if (monthRows.length === 0) {
+        showMsg('error', '保存済み勤務表がありません。先にスケジュールを保存してください。');
+        return;
+      }
 
-      const theadCells = dayNums.map(d => {
-        const wd   = new Date(year, month - 1, d).getDay();
-        const color = wd === 0 ? '#dc2626' : wd === 6 ? '#2563eb' : '#374151';
-        return `<th style="width:24px;text-align:center;color:${color};font-size:9px;padding:2px 1px;">
-          ${d}<br/><span style="font-size:8px">${WEEKDAYS[wd]}</span>
-        </th>`;
-      }).join('');
+      const dayNums = days.map((d) => parseInt(d.split('-')[2], 10));
 
-      const tbodyRows = allStaff.map(s => {
-        const m = shiftMatrix.get(s.id) ?? new Map();
-        const cells = days.map(d => {
-          const st      = m.get(d) ?? '';
-          const pattern = patternByName.get(st);
-          const short   = pattern?.shortName ?? (st ? st.substring(0, 1) : '');
-          const color   = pattern?.color ?? '';
-          return `<td style="text-align:center;font-size:9px;padding:1px;background:${color ? color + '22' : 'transparent'};color:${color || '#111'};font-weight:600">${short}</td>`;
-        }).join('');
-        return `<tr>
-          <td style="padding:2px 5px;white-space:nowrap;font-size:10px">${s.name}</td>
-          <td style="padding:2px 4px;font-size:9px;color:#666">${s.position}</td>
-          ${cells}
-        </tr>`;
-      }).join('');
+      const theadCells = dayNums
+        .map((d) => {
+          const wd = new Date(year, month - 1, d).getDay();
+          const color = wd === 0 ? '#dc2626' : wd === 6 ? '#2563eb' : '#374151';
+          return `<th style="width:24px;text-align:center;color:${color};font-size:9px;padding:2px 1px;">
+            ${d}<br/><span style="font-size:8px">${WEEKDAYS[wd]}</span>
+          </th>`;
+        })
+        .join('');
+
+      const tbodyRows = allStaff
+        .map((s: any) => {
+          const staffId = String(s?.id ?? '');
+          const m = shiftMatrix.get(staffId) ?? new Map<string, string>();
+
+          const cells = days
+            .map((d) => {
+              const shiftName = m.get(d) ?? '';
+              const pattern = patternByName.get(shiftName);
+              const short = pattern?.shortName ?? (shiftName ? shiftName.substring(0, 1) : '');
+              const color = pattern?.color ?? '';
+
+              return `<td style="text-align:center;font-size:9px;padding:1px;background:${
+                color ? color + '22' : 'transparent'
+              };color:${color || '#111'};font-weight:600">${short}</td>`;
+            })
+            .join('');
+
+          return `<tr>
+            <td style="padding:2px 5px;white-space:nowrap;font-size:10px">${s.name ?? ''}</td>
+            <td style="padding:2px 4px;font-size:9px;color:#666">${s.position ?? ''}</td>
+            ${cells}
+          </tr>`;
+        })
+        .join('');
 
       const html = `<!DOCTYPE html>
 <html lang="ja">
@@ -206,7 +330,9 @@ export function ExportPanel() {
 </head>
 <body>
   <h2>勤務表　${year}年${String(month).padStart(2, '0')}月</h2>
-  <p class="sub">出力日時: ${new Date().toLocaleString('ja-JP')}</p>
+  <p class="sub">出力日時: ${new Date().toLocaleString('ja-JP')} / 参照元: ${
+        source === 'generatedSchedules' ? '保存済み生成スケジュール' : '旧シフトデータ'
+      }</p>
   <div class="no-print">
     <button onclick="window.print()">🖨️ 印刷 / PDF保存</button>
   </div>
@@ -228,13 +354,15 @@ export function ExportPanel() {
         win.document.write(html);
         win.document.close();
         win.focus();
-        // ページ読み込み後に印刷ダイアログを自動起動
         win.onload = () => {
           setTimeout(() => win.print(), 300);
         };
         showMsg('success', '印刷プレビューを開きました（PDF保存も可能です）✅');
       } else {
-        showMsg('error', 'ポップアップがブロックされました。ブラウザの設定で許可してください。');
+        showMsg(
+          'error',
+          'ポップアップがブロックされました。ブラウザの設定で許可してください。'
+        );
       }
     } catch (e) {
       console.error('PDF エクスポートエラー:', e);
@@ -244,11 +372,9 @@ export function ExportPanel() {
     }
   }, [year, month]);
 
-  // ========== レンダリング ==========
   return (
     <div className="space-y-6">
-
-      {/* ── ヘッダー ── */}
+      {/* ヘッダー */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-4">
           <Download className="w-6 h-6 text-indigo-600" />
@@ -262,38 +388,55 @@ export function ExportPanel() {
         <div className="flex flex-wrap gap-4 mb-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">年</label>
-            <select value={year} onChange={e => setYear(Number(e.target.value))}
-              className="px-3 py-2 border rounded-lg text-sm">
-              {years.map(y => <option key={y} value={y}>{y}年</option>)}
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="px-3 py-2 border rounded-lg text-sm"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}年
+                </option>
+              ))}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">月</label>
-            <select value={month} onChange={e => setMonth(Number(e.target.value))}
-              className="px-3 py-2 border rounded-lg text-sm">
-              {months.map(m => <option key={m} value={m}>{m}月</option>)}
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="px-3 py-2 border rounded-lg text-sm"
+            >
+              {months.map((m) => (
+                <option key={m} value={m}>
+                  {m}月
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
         {/* メッセージ */}
         {message && (
-          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm mt-3 ${
-            message.type === 'success'
-              ? 'bg-green-50 text-green-800 border border-green-200'
-              : 'bg-red-50 text-red-800 border border-red-200'
-          }`}>
-            {message.type === 'success'
-              ? <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+          <div
+            className={`flex items-center gap-2 p-3 rounded-lg text-sm mt-3 ${
+              message.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+          >
+            {message.type === 'success' ? (
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            )}
             {message.text}
           </div>
         )}
       </div>
 
-      {/* ── エクスポートボタン ── */}
+      {/* エクスポートボタン */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
         {/* CSV */}
         <div className="bg-white rounded-xl shadow-md p-6 flex flex-col">
           <div className="flex items-center gap-3 mb-3">
@@ -314,10 +457,17 @@ export function ExportPanel() {
             onClick={exportCSV}
             disabled={exporting !== null}
             className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            type="button"
           >
-            {exporting === 'csv'
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> 生成中...</>
-              : <><Download className="w-4 h-4" /> CSV ダウンロード</>}
+            {exporting === 'csv' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> 生成中...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" /> CSV ダウンロード
+              </>
+            )}
           </button>
         </div>
 
@@ -342,10 +492,17 @@ export function ExportPanel() {
             onClick={exportExcel}
             disabled={exporting !== null}
             className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            type="button"
           >
-            {exporting === 'excel'
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> 生成中...</>
-              : <><Download className="w-4 h-4" /> Excel ダウンロード</>}
+            {exporting === 'excel' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> 生成中...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" /> Excel ダウンロード
+              </>
+            )}
           </button>
         </div>
 
@@ -370,25 +527,40 @@ export function ExportPanel() {
             onClick={exportPDF}
             disabled={exporting !== null}
             className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            type="button"
           >
-            {exporting === 'pdf'
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> 準備中...</>
-              : <><Printer className="w-4 h-4" /> 印刷プレビューを開く</>}
+            {exporting === 'pdf' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> 準備中...
+              </>
+            ) : (
+              <>
+                <Printer className="w-4 h-4" /> 印刷プレビューを開く
+              </>
+            )}
           </button>
         </div>
       </div>
 
-      {/* ── 使用ガイド ── */}
+      {/* ガイド */}
       <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-5">
-        <h4 className="font-semibold text-indigo-800 mb-3">📌 PDF保存手順（ブラウザ標準機能）</h4>
+        <h4 className="font-semibold text-indigo-800 mb-3">
+          📌 PDF保存手順（ブラウザ標準機能）
+        </h4>
         <ol className="text-sm text-indigo-700 space-y-1 list-decimal list-inside">
           <li>「印刷プレビューを開く」をクリック → 新しいウィンドウが開きます</li>
-          <li>印刷ダイアログが自動で起動します（起動しない場合は「🖨️ 印刷/PDF保存」ボタンをクリック）</li>
-          <li>プリンタの選択で「<strong>PDFとして保存</strong>」または「<strong>Microsoft Print to PDF</strong>」を選択</li>
-          <li>用紙サイズ「<strong>A3</strong>」・向き「<strong>横</strong>」を確認して保存</li>
+          <li>
+            印刷ダイアログが自動で起動します（起動しない場合は「🖨️ 印刷/PDF保存」ボタンをクリック）
+          </li>
+          <li>
+            プリンタの選択で「<strong>PDFとして保存</strong>」または「
+            <strong>Microsoft Print to PDF</strong>」を選択
+          </li>
+          <li>
+            用紙サイズ「<strong>A3</strong>」・向き「<strong>横</strong>」を確認して保存
+          </li>
         </ol>
       </div>
-
     </div>
   );
 }
