@@ -79,10 +79,6 @@ export class NurseSchedulerDB extends Dexie {
       generatedSchedules: '++id, staffId, date, patternId',
     });
 
-    // v7:
-    // - gender を夜勤男女ペア判定で使用
-    // - canWorkNightShift を日勤専従判定で使用
-    // - maxNightShiftsPerMonth を個別夜勤上限で使用
     this.version(7).stores({
       staff: 'id, name, position, employmentType, gender, canWorkNightShift, minWorkDaysPerMonth, maxNightShiftsPerMonth, createdAt',
       shifts: 'id, staffId, date, shiftType, createdAt',
@@ -98,17 +94,6 @@ export class NurseSchedulerDB extends Dexie {
 export const db = new NurseSchedulerDB();
 
 // ── デフォルト勤務パターン ───────────────────────────────────
-//
-// scheduleAlgorithm.ts と完全整合させるため、以下の5パターンを前提にする
-// - 日勤
-// - 夜勤
-// - 明け
-// - 有給
-// - 休み
-//
-// 重要:
-// - 「休み」だけが公休カウント対象
-// - 「有給」「明け」は公休数に含めない
 export const DEFAULT_PATTERNS = [
   {
     name: '日勤',
@@ -178,50 +163,324 @@ export const DEFAULT_PATTERNS = [
 ] as const;
 
 // ── 制約デフォルト ───────────────────────────────────────────
-//
-// scheduleAlgorithm.ts が実際に参照する制約だけを定義する。
-//
-// 優先順位の考え方:
-// 1. 夜勤回数上限（個別 / 全体）
-// 2. 連続勤務上限
-// 3. そのうえで男女ペア夜勤は最終タイブレーク
-//
-// 重要:
-// - minRestDaysPerMonth / exactRestDaysPerMonth は DB 互換維持用として残す
-// - 実際の月別公休日数は scheduleAlgorithm.ts 側の
-//   getRequiredRestDaysForMonth() に固定実装する
-// - 公休として数えるのは「休み」パターンのみ
-// - 「有給」「明け」は公休数に含めない
 export const DEFAULT_CONSTRAINTS: Omit<ScheduleConstraints, 'id'> = {
-  // 最大連続勤務日数
   maxConsecutiveWorkDays: 5,
-
-  // 夜勤から次の夜勤まで最低何日あけるか
   minRestDaysBetweenNights: 1,
-
-  // 最低勤務日数（個別 minWorkDaysPerMonth があればそちらを優先）
   minWorkDaysPerMonth: 20,
-
-  // 互換維持用:
-  // 公休の本体判定は scheduleAlgorithm.ts 側の月別固定値を使用
   minRestDaysPerMonth: 9,
   exactRestDaysPerMonth: 9,
-
-  // 明け翌日を自動で休みにする
   restAfterAke: true,
-
-  // 全体夜勤上限（個別 maxNightShiftsPerMonth があればそちらを優先）
   maxNightShiftsPerMonth: 8,
-
-  // 男女ペア夜勤の希望
-  // ただし scheduleAlgorithm.ts 側では
-  // 夜勤回数上限・連続勤務上限を優先し、
-  // この項目は最終タイブレーク扱い
   preferMixedGenderNightShift: true,
-
-  // 日曜・祝日の日勤必要人数
   sunHolidayDayStaffRequired: 3,
 };
+
+function safeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function safeNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function isDefined<T>(value: T | undefined | null): value is T {
+  return value !== undefined && value !== null;
+}
+
+function normalizePatternName(value: unknown): string {
+  return safeString(value);
+}
+
+function samePatternName(a: unknown, b: unknown): boolean {
+  return normalizePatternName(a) === normalizePatternName(b);
+}
+
+function toPatternId(value: unknown): number | null {
+  const num = safeNumber(value, Number.NaN);
+  return Number.isFinite(num) ? num : null;
+}
+
+function parseDateLike(value: unknown): number {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getTime();
+  if (typeof value === 'string' || typeof value === 'number') {
+    const time = new Date(value).getTime();
+    if (!Number.isNaN(time)) return time;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function patternCompletenessScore(pattern: Partial<ShiftPattern>): number {
+  let score = 0;
+
+  if (safeString(pattern.name)) score += 1;
+  if (safeString(pattern.shortName)) score += 1;
+  if (safeString(pattern.startTime)) score += 1;
+  if (safeString(pattern.endTime)) score += 1;
+  if (safeString(pattern.color)) score += 1;
+  if (typeof pattern.isNight === 'boolean') score += 1;
+  if (typeof pattern.isAke === 'boolean') score += 1;
+  if (typeof pattern.isVacation === 'boolean') score += 1;
+  if (typeof pattern.isWorkday === 'boolean') score += 1;
+  if (typeof pattern.requiredStaff === 'number') score += 1;
+  if (typeof pattern.sortOrder === 'number') score += 1;
+
+  return score;
+}
+
+function chooseCanonicalPattern(group: ShiftPattern[]): ShiftPattern {
+  return [...group].sort((a, b) => {
+    const aCreated = parseDateLike(a.createdAt);
+    const bCreated = parseDateLike(b.createdAt);
+    if (aCreated !== bCreated) return aCreated - bCreated;
+
+    const aScore = patternCompletenessScore(a);
+    const bScore = patternCompletenessScore(b);
+    if (aScore !== bScore) return bScore - aScore;
+
+    const aId = safeNumber(a.id, Number.MAX_SAFE_INTEGER);
+    const bId = safeNumber(b.id, Number.MAX_SAFE_INTEGER);
+    return aId - bId;
+  })[0];
+}
+
+function buildCanonicalPatternPatch(
+  canonical: ShiftPattern,
+  group: ShiftPattern[]
+): Partial<ShiftPattern> {
+  const defaultPattern = DEFAULT_PATTERNS.find((p) => samePatternName(p.name, canonical.name));
+  const donor = [...group].sort((a, b) => {
+    const aScore = patternCompletenessScore(a);
+    const bScore = patternCompletenessScore(b);
+    if (aScore !== bScore) return bScore - aScore;
+    return safeNumber(a.id, Number.MAX_SAFE_INTEGER) - safeNumber(b.id, Number.MAX_SAFE_INTEGER);
+  })[0];
+
+  const desiredName = normalizePatternName(canonical.name) || normalizePatternName(donor?.name);
+  const desiredShortName =
+    safeString(canonical.shortName) ||
+    safeString(donor?.shortName) ||
+    safeString(defaultPattern?.shortName) ||
+    desiredName;
+
+  const desiredStartTime =
+    safeString(canonical.startTime) ||
+    safeString(donor?.startTime) ||
+    safeString(defaultPattern?.startTime) ||
+    '00:00';
+
+  const desiredEndTime =
+    safeString(canonical.endTime) ||
+    safeString(donor?.endTime) ||
+    safeString(defaultPattern?.endTime) ||
+    '00:00';
+
+  const desiredColor =
+    safeString(canonical.color) ||
+    safeString(donor?.color) ||
+    safeString(defaultPattern?.color) ||
+    '#d1d5db';
+
+  const desiredRequiredStaff =
+    typeof canonical.requiredStaff === 'number'
+      ? canonical.requiredStaff
+      : typeof donor?.requiredStaff === 'number'
+        ? donor.requiredStaff
+        : typeof defaultPattern?.requiredStaff === 'number'
+          ? defaultPattern.requiredStaff
+          : 0;
+
+  const desiredIsNight =
+    typeof canonical.isNight === 'boolean'
+      ? canonical.isNight
+      : typeof donor?.isNight === 'boolean'
+        ? donor.isNight
+        : defaultPattern?.isNight ?? false;
+
+  const desiredIsAke =
+    typeof canonical.isAke === 'boolean'
+      ? canonical.isAke
+      : typeof donor?.isAke === 'boolean'
+        ? donor.isAke
+        : defaultPattern?.isAke ?? false;
+
+  const desiredIsVacation =
+    typeof canonical.isVacation === 'boolean'
+      ? canonical.isVacation
+      : typeof donor?.isVacation === 'boolean'
+        ? donor.isVacation
+        : defaultPattern?.isVacation ?? false;
+
+  const desiredIsWorkday =
+    typeof canonical.isWorkday === 'boolean'
+      ? canonical.isWorkday
+      : typeof donor?.isWorkday === 'boolean'
+        ? donor.isWorkday
+        : defaultPattern?.isWorkday ?? !(desiredIsAke || desiredIsVacation);
+
+  const desiredSortOrder =
+    typeof canonical.sortOrder === 'number'
+      ? canonical.sortOrder
+      : typeof donor?.sortOrder === 'number'
+        ? donor.sortOrder
+        : typeof defaultPattern?.sortOrder === 'number'
+          ? defaultPattern.sortOrder
+          : 0;
+
+  const patch: Partial<ShiftPattern> = {};
+
+  if (desiredName && desiredName !== canonical.name) patch.name = desiredName;
+  if (desiredShortName !== canonical.shortName) patch.shortName = desiredShortName;
+  if (desiredStartTime !== canonical.startTime) patch.startTime = desiredStartTime;
+  if (desiredEndTime !== canonical.endTime) patch.endTime = desiredEndTime;
+  if (desiredColor !== canonical.color) patch.color = desiredColor;
+  if (desiredRequiredStaff !== canonical.requiredStaff) patch.requiredStaff = desiredRequiredStaff;
+  if (desiredIsNight !== canonical.isNight) patch.isNight = desiredIsNight;
+  if (desiredIsAke !== canonical.isAke) patch.isAke = desiredIsAke;
+  if (desiredIsVacation !== canonical.isVacation) patch.isVacation = desiredIsVacation;
+  if (desiredIsWorkday !== canonical.isWorkday) patch.isWorkday = desiredIsWorkday;
+  if (desiredSortOrder !== canonical.sortOrder) patch.sortOrder = desiredSortOrder;
+
+  if (Object.keys(patch).length > 0) {
+    patch.updatedAt = new Date();
+  }
+
+  return patch;
+}
+
+export interface DuplicateShiftPatternCleanupDetail {
+  name: string;
+  keptId: number;
+  removedIds: number[];
+}
+
+export interface DuplicateShiftPatternCleanupResult {
+  groupsMerged: number;
+  patternsDeleted: number;
+  shiftRequestRefsUpdated: number;
+  generatedScheduleRefsUpdated: number;
+  details: DuplicateShiftPatternCleanupDetail[];
+}
+
+async function runCleanupDuplicateShiftPatterns(): Promise<DuplicateShiftPatternCleanupResult> {
+  return db.transaction(
+    'rw',
+    db.shiftPatterns,
+    db.shiftRequests,
+    db.generatedSchedules,
+    async () => {
+      const [allPatterns, allShiftRequests, allGeneratedSchedules] = await Promise.all([
+        db.shiftPatterns.toArray().catch(() => []),
+        db.shiftRequests.toArray().catch(() => []),
+        db.generatedSchedules.toArray().catch(() => []),
+      ]);
+
+      const grouped = new Map<string, ShiftPattern[]>();
+
+      for (const pattern of allPatterns) {
+        const name = normalizePatternName(pattern?.name);
+        if (!name) continue;
+
+        const list = grouped.get(name) ?? [];
+        list.push(pattern);
+        grouped.set(name, list);
+      }
+
+      const result: DuplicateShiftPatternCleanupResult = {
+        groupsMerged: 0,
+        patternsDeleted: 0,
+        shiftRequestRefsUpdated: 0,
+        generatedScheduleRefsUpdated: 0,
+        details: [],
+      };
+
+      for (const [name, group] of grouped.entries()) {
+        if (group.length <= 1) continue;
+
+        const canonical = chooseCanonicalPattern(group);
+        const canonicalId = toPatternId(canonical.id);
+
+        if (canonicalId === null) continue;
+
+        const patch = buildCanonicalPatternPatch(canonical, group);
+        if (Object.keys(patch).length > 0) {
+          await db.shiftPatterns.update(canonicalId, patch as any);
+        }
+
+        const duplicates = group.filter(
+          (pattern) => safeNumber(pattern.id, -1) !== canonicalId
+        );
+
+        if (duplicates.length === 0) continue;
+
+        const removedIds: number[] = [];
+
+        for (const duplicate of duplicates) {
+          const duplicateId = toPatternId(duplicate.id);
+          if (duplicateId === null || duplicateId === canonicalId) continue;
+
+          for (const req of allShiftRequests as any[]) {
+            if (String(req?.patternId ?? '') !== String(duplicateId)) continue;
+            if (!isDefined(req?.id)) continue;
+
+            await db.shiftRequests.update(req.id, {
+              patternId: canonicalId,
+              updatedAt: new Date(),
+            } as any);
+
+            result.shiftRequestRefsUpdated += 1;
+          }
+
+          for (const row of allGeneratedSchedules as any[]) {
+            if (String(row?.patternId ?? '') !== String(duplicateId)) continue;
+            if (!isDefined(row?.id)) continue;
+
+            await db.generatedSchedules.update(row.id, {
+              patternId: canonicalId,
+              updatedAt: new Date(),
+            } as any);
+
+            result.generatedScheduleRefsUpdated += 1;
+          }
+
+          await db.shiftPatterns.delete(duplicateId);
+          removedIds.push(duplicateId);
+          result.patternsDeleted += 1;
+        }
+
+        if (removedIds.length > 0) {
+          result.groupsMerged += 1;
+          result.details.push({
+            name,
+            keptId: canonicalId,
+            removedIds,
+          });
+        }
+      }
+
+      return result;
+    }
+  );
+}
+
+export async function cleanupDuplicateShiftPatterns(): Promise<DuplicateShiftPatternCleanupResult> {
+  try {
+    return await runCleanupDuplicateShiftPatterns();
+  } catch (error) {
+    console.error('[DB] cleanupDuplicateShiftPatterns エラー:', error);
+    return {
+      groupsMerged: 0,
+      patternsDeleted: 0,
+      shiftRequestRefsUpdated: 0,
+      generatedScheduleRefsUpdated: 0,
+      details: [],
+    };
+  }
+}
 
 let initializationPromise: Promise<void> | null = null;
 
@@ -231,7 +490,7 @@ async function runEnsureDefaultPatterns(): Promise<void> {
 
     const patternsByName = new Map<string, any>();
     for (const pattern of existingPatterns as any[]) {
-      const name = String(pattern?.name ?? '').trim();
+      const name = normalizePatternName(pattern?.name);
       if (!name) continue;
       if (!patternsByName.has(name)) {
         patternsByName.set(name, pattern);
@@ -266,6 +525,7 @@ async function runEnsureDefaultPatterns(): Promise<void> {
               isWorkday: def.isWorkday,
               shortName: def.shortName,
               sortOrder: def.sortOrder,
+              updatedAt: new Date(),
             })
             .catch((e) => console.warn(`[DB] パターン更新失敗 (${def.name}):`, e));
 
@@ -276,7 +536,11 @@ async function runEnsureDefaultPatterns(): Promise<void> {
       }
 
       try {
-        const id = await db.shiftPatterns.add(def as any);
+        const id = await db.shiftPatterns.add({
+          ...def,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any);
         patternsByName.set(def.name, { id, ...def });
         console.log(`[DB] パターン追加: ${def.name}`);
       } catch (e) {
@@ -284,11 +548,20 @@ async function runEnsureDefaultPatterns(): Promise<void> {
       }
     }
 
+    const cleanupResult = await cleanupDuplicateShiftPatterns();
+    if (cleanupResult.patternsDeleted > 0) {
+      console.log('[DB] 重複勤務パターンを整理しました:', cleanupResult);
+    }
+
     try {
       const allConstraints = await db.constraints.toArray().catch(() => []);
 
       if (allConstraints.length === 0) {
-        await db.constraints.add(DEFAULT_CONSTRAINTS as any);
+        await db.constraints.add({
+          ...DEFAULT_CONSTRAINTS,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any);
         console.log('[DB] デフォルト制約を追加しました');
       } else {
         const latest = allConstraints[allConstraints.length - 1] as any;
@@ -345,6 +618,8 @@ async function runEnsureDefaultPatterns(): Promise<void> {
               latest.sunHolidayDayStaffRequired === undefined
                 ? DEFAULT_CONSTRAINTS.sunHolidayDayStaffRequired
                 : latest.sunHolidayDayStaffRequired,
+
+            updatedAt: new Date(),
           });
 
           console.log('[DB] 制約不足項目を補完しました');
@@ -367,8 +642,6 @@ async function runEnsureDefaultPatterns(): Promise<void> {
   }
 }
 
-// ── 初期補完 ────────────────────────────────────────────────
-// ★ 同時に複数箇所から呼ばれても 1 回だけ実行する
 export function ensureDefaultPatterns(): Promise<void> {
   if (!initializationPromise) {
     initializationPromise = runEnsureDefaultPatterns();
