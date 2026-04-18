@@ -1,27 +1,45 @@
 import { useState } from 'react';
 import { Pencil, Trash2, Plus } from 'lucide-react';
 import { ShiftPatternForm } from './ShiftPatternForm';
-import { useShiftPatterns } from '../hooks/useShiftPatterns';
 import type { ShiftPattern, ShiftPatternFormData } from '../types';
 
-export function ShiftPatternList() {
-  const { patterns, loading, addPattern, updatePattern, deletePattern } = useShiftPatterns();
+type ShiftPatternListProps = {
+  patterns: ShiftPattern[];
+  loading: boolean;
+  onAdd: (data: ShiftPatternFormData) => Promise<boolean>;
+  onUpdate: (id: number, data: ShiftPatternFormData) => Promise<boolean>;
+  onDelete: (id: number) => Promise<boolean>;
+};
+
+export function ShiftPatternList({
+  patterns,
+  loading,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: ShiftPatternListProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingPattern, setEditingPattern] = useState<ShiftPattern | null>(null);
 
-  // ★ バグ1修正: Promise<boolean> を返すように変更
   const handleSubmit = async (data: ShiftPatternFormData): Promise<boolean> => {
     try {
-      let success: boolean;
+      let success = false;
+
       if (editingPattern) {
-        success = await updatePattern(editingPattern.id, data);
+        if (editingPattern.id == null) {
+          console.error('編集対象の勤務パターンIDがありません');
+          return false;
+        }
+        success = await onUpdate(editingPattern.id, data);
       } else {
-        success = await addPattern(data);
+        success = await onAdd(data);
       }
+
       if (success) {
         setIsFormOpen(false);
         setEditingPattern(null);
       }
+
       return success;
     } catch (error) {
       console.error('勤務パターンの保存に失敗しました:', error);
@@ -35,13 +53,17 @@ export function ShiftPatternList() {
   };
 
   const handleDelete = async (pattern: ShiftPattern) => {
-    console.log('削除ボタンがクリックされました:', pattern.name);
+    if (pattern.id == null) {
+      console.error('削除対象の勤務パターンIDがありません');
+      alert('削除対象のIDが不正です');
+      return;
+    }
+
     const confirmed = window.confirm(`勤務パターン「${pattern.name}」を削除してもよろしいですか？`);
-    console.log('削除確認結果:', confirmed);
     if (!confirmed) return;
+
     try {
-      console.log('削除処理を開始します:', pattern.id);
-      await deletePattern(pattern.id);
+      await onDelete(pattern.id);
     } catch (error) {
       console.error('削除処理で例外が発生しました:', error);
       alert('削除処理でエラーが発生しました');
@@ -67,8 +89,10 @@ export function ShiftPatternList() {
   }
 
   const sortedPatterns = [...patterns].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const totalRequired = patterns.filter(p => p.isWorkday).reduce((sum, p) => sum + p.requiredStaff, 0);
-  const workPatterns = patterns.filter(p => p.isWorkday);
+  const totalRequired = patterns
+    .filter((p) => p.isWorkday)
+    .reduce((sum, p) => sum + p.requiredStaff, 0);
+  const workPatterns = patterns.filter((p) => p.isWorkday);
 
   return (
     <div className="space-y-6">
@@ -80,6 +104,7 @@ export function ShiftPatternList() {
         <button
           onClick={handleAddNew}
           className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
+          type="button"
         >
           <Plus className="w-5 h-5" />
           <span>新しいパターンを追加</span>
@@ -113,16 +138,22 @@ export function ShiftPatternList() {
                     <p className="text-xs text-gray-500">{pattern.isWorkday ? '勤務' : '休暇'}</p>
                   </div>
                 </div>
+
                 <div className="flex items-center space-x-1">
                   <button
                     onClick={() => handleEdit(pattern)}
                     className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                     title="編集"
+                    type="button"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(pattern); }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleDelete(pattern);
+                    }}
                     className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                     title="削除"
                     type="button"
@@ -131,6 +162,7 @@ export function ShiftPatternList() {
                   </button>
                 </div>
               </div>
+
               {pattern.isWorkday && (
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
