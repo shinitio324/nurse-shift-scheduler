@@ -223,31 +223,36 @@ export const DEFAULT_CONSTRAINTS: Omit<ScheduleConstraints, 'id'> = {
   sunHolidayDayStaffRequired: 3,
 };
 
-// ── 初期補完 ────────────────────────────────────────────────
-export async function ensureDefaultPatterns(): Promise<void> {
+let initializationPromise: Promise<void> | null = null;
+
+async function runEnsureDefaultPatterns(): Promise<void> {
   try {
-    // shiftPatterns 補完
     const existingPatterns = await db.shiftPatterns.toArray().catch(() => []);
-    const patternNameSet = new Set(existingPatterns.map((p: any) => p.name));
+
+    const patternsByName = new Map<string, any>();
+    for (const pattern of existingPatterns as any[]) {
+      const name = String(pattern?.name ?? '').trim();
+      if (!name) continue;
+      if (!patternsByName.has(name)) {
+        patternsByName.set(name, pattern);
+      }
+    }
 
     for (const def of DEFAULT_PATTERNS) {
-      if (patternNameSet.has(def.name)) {
-        const old = existingPatterns.find((p: any) => p.name === def.name);
+      const old = patternsByName.get(def.name);
 
+      if (old) {
         if (
-          old &&
-          (
-            old.startTime === undefined ||
-            old.endTime === undefined ||
-            old.color === undefined ||
-            old.isNight === undefined ||
-            old.isAke === undefined ||
-            old.isVacation === undefined ||
-            old.requiredStaff === undefined ||
-            old.isWorkday === undefined ||
-            old.shortName === undefined ||
-            old.sortOrder === undefined
-          )
+          old.startTime === undefined ||
+          old.endTime === undefined ||
+          old.color === undefined ||
+          old.isNight === undefined ||
+          old.isAke === undefined ||
+          old.isVacation === undefined ||
+          old.requiredStaff === undefined ||
+          old.isWorkday === undefined ||
+          old.shortName === undefined ||
+          old.sortOrder === undefined
         ) {
           await db.shiftPatterns
             .update(old.id, {
@@ -271,14 +276,14 @@ export async function ensureDefaultPatterns(): Promise<void> {
       }
 
       try {
-        await db.shiftPatterns.add(def as any);
+        const id = await db.shiftPatterns.add(def as any);
+        patternsByName.set(def.name, { id, ...def });
         console.log(`[DB] パターン追加: ${def.name}`);
       } catch (e) {
         console.warn(`[DB] パターン追加失敗 (${def.name}):`, e);
       }
     }
 
-    // constraints 補完
     try {
       const allConstraints = await db.constraints.toArray().catch(() => []);
 
@@ -305,9 +310,6 @@ export async function ensureDefaultPatterns(): Promise<void> {
                 ? DEFAULT_CONSTRAINTS.minWorkDaysPerMonth
                 : latest.minWorkDaysPerMonth,
 
-            // 互換維持用:
-            // 実際の公休日数は scheduleAlgorithm.ts 側の
-            // getRequiredRestDaysForMonth() を使う
             minRestDaysPerMonth:
               latest.minRestDaysPerMonth === undefined
                 ? (
@@ -363,6 +365,15 @@ export async function ensureDefaultPatterns(): Promise<void> {
   } catch (err) {
     console.error('[DB] ensureDefaultPatterns エラー:', err);
   }
+}
+
+// ── 初期補完 ────────────────────────────────────────────────
+// ★ 同時に複数箇所から呼ばれても 1 回だけ実行する
+export function ensureDefaultPatterns(): Promise<void> {
+  if (!initializationPromise) {
+    initializationPromise = runEnsureDefaultPatterns();
+  }
+  return initializationPromise;
 }
 
 export const initializeDatabase = ensureDefaultPatterns;
