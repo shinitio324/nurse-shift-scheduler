@@ -137,6 +137,12 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
   const getShiftName = (patternId: number | string): string =>
     getPattern(patternId)?.name ?? '-';
 
+  const getShiftShortName = (patternId: number | string): string => {
+    const pattern = getPattern(patternId);
+    if (!pattern) return '';
+    return pattern.shortName || pattern.name.slice(0, 2);
+  };
+
   const getStaffName = (staffId: number | string): string =>
     staffMap.get(toIdKey(staffId))?.name ?? `ID:${staffId}`;
 
@@ -152,29 +158,33 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
   }, [year, month, days]);
 
   const scheduleByDateAndStaff = useMemo(() => {
-    const map: Record<string, Record<string, number>> = {};
+    const map: Record<string, Record<string, number | string>> = {};
 
     for (const s of safeSchedule) {
       if (!s?.date || s.staffId == null || s.patternId == null) continue;
       if (!map[s.date]) map[s.date] = {};
-      map[s.date][toIdKey(s.staffId)] = Number(s.patternId);
+      map[s.date][toIdKey(s.staffId)] = s.patternId;
     }
 
     return map;
   }, [safeSchedule]);
 
   const displayedStaff = useMemo(() => {
-    if (staff.length > 0) return staff;
+    if (staff.length > 0) {
+      return staff
+        .filter((member) => member?.id != null)
+        .map((member) => ({
+          id: member.id as string | number,
+          name: member.name,
+        }));
+    }
 
-    return safeWorkload.map((wl) => ({
-      id: String(wl.staffId),
-      name: wl.staffName,
-      position: 'その他' as const,
-      employmentType: '常勤' as const,
-      qualifications: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }));
+    return safeWorkload
+      .filter((wl) => wl?.staffId != null)
+      .map((wl) => ({
+        id: wl.staffId as string | number,
+        name: wl.staffName ?? `ID:${wl.staffId}`,
+      }));
   }, [staff, safeWorkload]);
 
   const distributionEntries = Object.entries(safeDist).sort((a, b) =>
@@ -182,13 +192,22 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
   );
 
   const handleSave = async () => {
+    if (safeSchedule.length === 0) {
+      alert('保存対象のスケジュールがありません。');
+      return;
+    }
+
     setSaving(true);
     try {
-      await saveSchedule(safeSchedule, year, month);
+      const saved = await saveSchedule(result, year, month);
+      if (!saved) {
+        alert('スケジュールの保存に失敗しました。');
+        return;
+      }
       onSave();
     } catch (e) {
-      console.error('保存失敗:', e);
-      alert('保存中にエラーが発生しました');
+      console.error('スケジュール保存エラー:', e);
+      alert('スケジュール保存中にエラーが発生しました。');
     } finally {
       setSaving(false);
     }
@@ -205,10 +224,10 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
 
           <div>
             <h2 className="text-lg font-semibold text-gray-800">
-              {year}年{month}月 スケジュールプレビュー
+              {year}年{month}月 勤務表プレビュー
             </h2>
             <p className="text-sm text-gray-500">
-              {safeSchedule.length}件のシフトを生成しました
+              生成件数: {safeSchedule.length} 件
             </p>
           </div>
         </div>
@@ -217,6 +236,7 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
           <button
             onClick={onCancel}
             className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+            type="button"
           >
             <X className="h-4 w-4" />
             キャンセル
@@ -226,43 +246,44 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
             onClick={handleSave}
             disabled={saving}
             className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:bg-blue-300"
+            type="button"
           >
             {saving ? (
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
             ) : (
               <Save className="h-4 w-4" />
             )}
-            保存する
+            保存
           </button>
         </div>
       </div>
 
-      {/* サマリーカード */}
+      {/* サマリー */}
       <div className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
         {[
           {
             icon: Calendar,
             color: 'blue' as const,
             label: '対象日数',
-            value: `${result?.statistics?.totalDays ?? 0}日`,
+            value: `${result?.statistics?.totalDays ?? 0}`,
           },
           {
             icon: Clock,
             color: 'green' as const,
-            label: '総シフト数',
-            value: `${safeSchedule.length}件`,
+            label: '生成シフト数',
+            value: `${safeSchedule.length}`,
           },
           {
             icon: Users,
             color: 'purple' as const,
-            label: 'スタッフ数',
-            value: `${safeWorkload.length}名`,
+            label: '対象スタッフ',
+            value: `${safeWorkload.length}`,
           },
           {
             icon: AlertTriangle,
             color: 'yellow' as const,
-            label: '警告',
-            value: `${safeWarnings.length}件`,
+            label: '警告件数',
+            value: `${safeWarnings.length}`,
           },
         ].map(({ icon: Icon, color, label, value }) => {
           const style = summaryCardStyles[color];
@@ -276,7 +297,7 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
         })}
       </div>
 
-      {/* 警告一覧 */}
+      {/* 警告 */}
       {safeWarnings.length > 0 && (
         <div className="mx-5 mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
           <div className="mb-2 flex items-center gap-2">
@@ -288,18 +309,18 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
           <ul className="space-y-1">
             {safeWarnings.map((warning, index) => (
               <li key={`${warning}-${index}`} className="text-sm text-yellow-700">
-                ・{warning}
+                {warning}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* シフト種別集計 */}
+      {/* シフト分布 */}
       {distributionEntries.length > 0 && (
         <div className="mx-5 mb-4">
           <h3 className="mb-2 text-sm font-medium text-gray-700">
-            シフト種別集計
+            シフト分布
           </h3>
           <div className="flex flex-wrap gap-2">
             {distributionEntries.map(([name, count]) => (
@@ -314,7 +335,7 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
         </div>
       )}
 
-      {/* スタッフ別勤務集計 */}
+      {/* スタッフ別集計 */}
       {safeWorkload.length > 0 && (
         <div className="mx-5 mb-4">
           <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
@@ -326,7 +347,7 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  {['スタッフ', '勤務', '夜勤', '明け', '有給', '休み', '合計'].map((h) => (
+                  {['スタッフ名', '勤務', '夜勤', '明け', '有給', '休み', '合計'].map((h) => (
                     <th
                       key={h}
                       className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-gray-500"
@@ -341,7 +362,7 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
                 {safeWorkload.map((wl) => (
                   <tr key={toIdKey(wl?.staffId)} className="hover:bg-gray-50">
                     <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-800">
-                      {wl?.staffName ?? getStaffName(wl?.staffId)}
+                      {wl?.staffName ?? getStaffName(wl?.staffId ?? '')}
                     </td>
                     <td className="px-3 py-2 text-center text-blue-700">
                       {wl?.workDays ?? 0}
@@ -369,12 +390,12 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
         </div>
       )}
 
-      {/* カレンダープレビュー */}
+      {/* 月間勤務表 */}
       {displayedStaff.length > 0 && dates.length > 0 && (
         <div className="mx-5 mb-5">
           <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-700">
             <Calendar className="h-4 w-4" />
-            カレンダープレビュー
+            月間勤務表
           </h3>
 
           <div className="overflow-x-auto rounded-lg border border-gray-200">
@@ -403,8 +424,6 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
 
               <tbody className="divide-y divide-gray-100">
                 {displayedStaff.map((member) => {
-                  if (member?.id == null) return null;
-
                   const memberKey = toIdKey(member.id);
 
                   return (
@@ -416,16 +435,17 @@ export const SchedulePreview: React.FC<SchedulePreviewProps> = ({
                       {dates.map((d) => {
                         const pid = scheduleByDateAndStaff[d]?.[memberKey];
                         const color = pid != null ? getShiftColor(pid) : '#f3f4f6';
-                        const name = pid != null ? getShiftName(pid) : '';
+                        const label = pid != null ? getShiftName(pid) : '';
+                        const short = pid != null ? getShiftShortName(pid) : '';
 
                         return (
                           <td key={`${memberKey}-${d}`} className="px-1 py-1">
                             <div
                               className="flex h-6 w-8 items-center justify-center rounded text-[10px] font-medium text-gray-700"
                               style={{ backgroundColor: color }}
-                              title={name || '未割当'}
+                              title={label || ''}
                             >
-                              {name ? name.slice(0, 2) : ''}
+                              {short}
                             </div>
                           </td>
                         );
