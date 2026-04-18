@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { db, DEFAULT_PATTERNS, initializeDatabase } from '../db/index';
+import {
+  db,
+  DEFAULT_PATTERNS,
+  initializeDatabase,
+  cleanupDuplicateShiftPatterns,
+} from '../db/index';
 import type { ShiftPattern, ShiftPatternFormData } from '../types';
 
 const REQUIRED_PATTERN_NAMES = new Set(
@@ -11,7 +16,12 @@ function safeString(value: unknown): string {
 }
 
 function safeNumber(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function normalizeFormData(data: ShiftPatternFormData): ShiftPatternFormData {
@@ -52,6 +62,11 @@ function isProtectedPatternName(name: unknown): boolean {
   return REQUIRED_PATTERN_NAMES.has(safeString(name));
 }
 
+function normalizePatternId(value: unknown): number | null {
+  const id = safeNumber(value, Number.NaN);
+  return Number.isFinite(id) ? id : null;
+}
+
 export function useShiftPatterns() {
   const [patterns, setPatterns] = useState<ShiftPattern[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -61,6 +76,11 @@ export function useShiftPatterns() {
       setLoading(true);
 
       await initializeDatabase();
+
+      const cleanupResult = await cleanupDuplicateShiftPatterns();
+      if (cleanupResult.patternsDeleted > 0) {
+        console.log('✅ 重複勤務パターンを自動整理しました:', cleanupResult);
+      }
 
       const allPatterns = await db.shiftPatterns.toArray();
       setPatterns(sortPatterns(allPatterns));
@@ -85,6 +105,8 @@ export function useShiftPatterns() {
           console.warn('⚠️ 勤務パターン名が空です');
           return false;
         }
+
+        await initializeDatabase();
 
         const currentPatterns = await db.shiftPatterns.toArray();
 
@@ -163,7 +185,7 @@ export function useShiftPatterns() {
           return false;
         }
 
-        const willBeProtected = isProtectedPatternName(existing.name);
+        const isProtected = isProtectedPatternName(existing.name);
 
         const patch: Partial<ShiftPattern> = {
           updatedAt: new Date(),
@@ -213,15 +235,14 @@ export function useShiftPatterns() {
           patch.sortOrder = safeNumber(formData.sortOrder, safeNumber(existing.sortOrder, 0));
         }
 
-        if (willBeProtected) {
+        if (isProtected) {
           const protectedDefault = DEFAULT_PATTERNS.find((p) => sameName(p.name, existing.name));
 
           if (protectedDefault) {
             patch.name = protectedDefault.name;
-            patch.shortName =
-              formData.shortName !== undefined
-                ? safeString(formData.shortName)
-                : existing.shortName ?? protectedDefault.shortName;
+            if (formData.shortName === undefined && !existing.shortName) {
+              patch.shortName = protectedDefault.shortName;
+            }
           }
         }
 
@@ -236,14 +257,53 @@ export function useShiftPatterns() {
     [loadPatterns]
   );
 
+  const cleanupDuplicates = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await cleanupDuplicateShiftPatterns();
+
+      if (result.patternsDeleted > 0) {
+        console.log('✅ 重複勤務パターン整理完了:', result);
+      }
+
+      await loadPatterns();
+      return true;
+    } catch (error) {
+      console.error('❌ 重複勤務パターンの整理に失敗しました:', error);
+      return false;
+    }
+  }, [loadPatterns]);
+
   const deletePattern = useCallback(
     async (id: number): Promise<boolean> => {
       try {
-        const existing = await db.shiftPatterns.get(id);
+        let existing = await db.shiftPatterns.get(id);
 
         if (!existing) {
           console.warn('⚠️ 削除対象の勤務パターンが見つかりません:', id);
           return false;
+        }
+
+        let allPatterns = await db.shiftPatterns.toArray();
+        const sameNamedPatterns = allPatterns.filter((pattern) =>
+          sameName(pattern.name, existing?.name)
+        );
+
+        // ★ 同名重複がある場合は先に安全統合
+        if (sameNamedPatterns.length > 1) {
+          const cleanupResult = await cleanupDuplicateShiftPatterns();
+          if (cleanupResult.patternsDeleted > 0) {
+            console.log('✅ 削除前に重複勤務パターンを整理しました:', cleanupResult);
+          }
+
+          existing = await db.shiftPatterns.get(id);
+
+          // クリックされた対象が重複側で既に統合削除されたなら成功扱い
+          if (!existing) {
+            await loadPatterns();
+            return true;
+          }
+
+          allPatterns = await db.shiftPatterns.toArray();
         }
 
         if (isProtectedPatternName(existing.name)) {
@@ -255,15 +315,17 @@ export function useShiftPatterns() {
         }
 
         const usingRequestCount = await db.shiftRequests
-          .where('patternId')
-          .equals(id)
-          .count()
+          .toArray()
+          .then((rows) =>
+            rows.filter((row: any) => String(row?.patternId ?? '') === String(id)).length
+          )
           .catch(() => 0);
 
         const usingGeneratedCount = await db.generatedSchedules
-          .where('patternId')
-          .equals(id)
-          .count()
+          .toArray()
+          .then((rows) =>
+            rows.filter((row: any) => String(row?.patternId ?? '') === String(id)).length
+          )
           .catch(() => 0);
 
         if (usingRequestCount > 0 || usingGeneratedCount > 0) {
@@ -307,7 +369,9 @@ export function useShiftPatterns() {
 
   const isProtectedPattern = useCallback(
     (id: number): boolean => {
-      const pattern = patterns.find((item) => item.id === id);
+      const pattern = patterns.find(
+        (item) => normalizePatternId(item.id) === normalizePatternId(id)
+      );
       return Boolean(pattern && isProtectedPatternName(pattern.name));
     },
     [patterns]
@@ -319,6 +383,7 @@ export function useShiftPatterns() {
     addPattern,
     updatePattern,
     deletePattern,
+    cleanupDuplicates,
     getPatternById,
     getPatternByName,
     isProtectedPattern,
