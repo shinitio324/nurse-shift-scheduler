@@ -740,8 +740,6 @@ export class ScheduleGenerator {
       const mid = member.id;
       const key = idKey(mid);
 
-      if (this.hasEntry(schedule, mid, dateStr)) continue;
-
       let needsAke = false;
 
       if (isFirst) {
@@ -754,9 +752,22 @@ export class ScheduleGenerator {
         }
       }
 
-      if (needsAke) {
-        this.overwriteEntry(schedule, mid, dateStr, this.akePatternId, false);
+      if (!needsAke) continue;
+
+      const existing = this.findEntry(schedule, mid, dateStr);
+      const alreadyAke = existing ? sameId(existing.patternId, this.akePatternId) : false;
+
+      if (alreadyAke) continue;
+
+      if (existing) {
+        const existingPattern = patterns.find((p) => sameId(p?.id, existing.patternId));
+        console.warn(
+          `[SG] ${dateStr} ${String(member.name ?? mid)} は夜勤翌日のため、` +
+            `${String(existingPattern?.name ?? '既存割当')} より 明け を優先します`
+        );
       }
+
+      this.overwriteEntry(schedule, mid, dateStr, this.akePatternId, false);
     }
   }
 
